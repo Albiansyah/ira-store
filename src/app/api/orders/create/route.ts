@@ -1,6 +1,6 @@
 // src/app/api/orders/create/route.ts
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabaseClient";
+import { getSupabaseAdmin } from "@/lib/supabaseServerClient"; // ← GANTI INI!
 import { buildPakasirPayUrl } from "@/lib/pakasir";
 
 interface CreateOrderItemInput {
@@ -16,12 +16,16 @@ interface CreateOrderBody {
 
 export async function POST(req: Request) {
   try {
+    // Inisialisasi Supabase Admin Client
+    const supabase = getSupabaseAdmin(); // ← PENTING: Pakai getSupabaseAdmin()
+    
     const body = (await req.json()) as CreateOrderBody;
 
     const buyerEmail = String(body.buyerEmail || "").trim();
     const buyerPhone = String(body.buyerPhone || "").trim();
     const items = Array.isArray(body.items) ? body.items : [];
 
+    // Validasi input
     if (!buyerEmail || !buyerPhone) {
       return NextResponse.json(
         { success: false, error: "Email dan nomor WhatsApp wajib diisi" },
@@ -36,8 +40,10 @@ export async function POST(req: Request) {
       );
     }
 
+    // Get unique product IDs
     const productIds = [...new Set(items.map((it) => it.productId))];
 
+    // Fetch products from database
     const { data: productsData, error: productsError } = await supabase
       .from("products")
       .select("id, name, price, unit_count, is_active")
@@ -56,10 +62,12 @@ export async function POST(req: Request) {
       );
     }
 
+    // Create products map for quick lookup
     const productsMap = new Map(
       productsData.map((p: any) => [p.id as string, p])
     );
 
+    // Normalize and validate items
     let normalized: {
       product: any;
       quantity: number;
@@ -99,6 +107,7 @@ export async function POST(req: Request) {
       );
     }
 
+    // Calculate totals
     const totalUnits = normalized.reduce(
       (sum, it) => sum + it.unitCount,
       0
@@ -108,6 +117,7 @@ export async function POST(req: Request) {
       0
     );
 
+    // Check available stock
     const { data: stockRows, error: stockErr } = await supabase
       .from("accounts_stock")
       .select("id, is_used");
@@ -139,14 +149,12 @@ export async function POST(req: Request) {
       );
     }
 
-    // === Insert ke tabel orders ===
-    // Disesuaikan dengan struktur tabel lo:
-    // buyer_email, buyer_phone, status, payment_reference, created_at, updated_at
+    // Insert order to database
     const orderPayload: any = {
       buyer_email: buyerEmail,
       buyer_phone: buyerPhone,
       status: "pending",
-      // payment_reference: null // kalau mau diisi nanti saat sudah paid
+      // payment_reference akan diisi setelah payment berhasil
     };
 
     const { data: orderInsert, error: orderErr } = await supabase
@@ -170,7 +178,7 @@ export async function POST(req: Request) {
 
     const orderId: string = orderInsert.id;
 
-    // === Insert order_items (pastikan tabel & kolom sudah ada) ===
+    // Insert order items
     const orderItemsPayload = normalized.map((it) => ({
       order_id: orderId,
       product_id: it.product.id,
@@ -197,7 +205,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // === Bangun URL pembayaran Pakasir (multi payment) ===
+    // Build payment URL using Pakasir
     const paymentUrl = buildPakasirPayUrl({
       orderId,
       amount: grandTotal,

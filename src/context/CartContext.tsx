@@ -1,3 +1,4 @@
+// src/contexts/CartContext.tsx
 "use client";
 
 import {
@@ -7,21 +8,11 @@ import {
   useEffect,
   useMemo,
   ReactNode,
+  useCallback,
 } from "react";
-import { supabase } from "@/lib/supabaseClient"; // Ambil dari file produk Anda
-import type { ProductRow } from "@/lib/types"; // Ambil dari file produk Anda
+import { supabase } from "@/lib/supabaseClient";
+import type { ProductRow } from "@/lib/types";
 
-// (Jika Anda belum punya type ProductRow di @/lib/types,
-// Anda bisa tambahkan ini sementara di atas CartProvider)
-// interface ProductRow {
-//   id: string;
-//   name: string;
-//   price: number;
-//   unit_count: number;
-//   is_active: boolean;
-// }
-
-// Definisikan tipe untuk item di keranjang
 export interface CartItem {
   productId: string;
   name: string;
@@ -30,19 +21,19 @@ export interface CartItem {
   quantity: number;
 }
 
-// Definisikan tipe untuk Context
 interface CartContextType {
   cart: CartItem[];
   stockAvailable: number | null;
-  totalItems: number; // Total item (badge)
-  totalUnitsInCart: number; // Total unit (akun)
-  totalPrice: number; // Total harga
-  addToCart: (product: ProductRow) => boolean; // Return status sukses
-  buyNow: (product: ProductRow) => boolean; // Return status sukses
-  updateQuantity: (productId: string, newQuantity: number) => boolean; // Return status sukses
+  totalItems: number;
+  totalUnitsInCart: number;
+  totalPrice: number;
+  addToCart: (product: ProductRow) => boolean;
+  buyNow: (product: ProductRow) => boolean;
+  updateQuantity: (productId: string, newQuantity: number) => boolean;
   removeFromCart: (productId: string) => void;
   clearCart: () => void;
   isCartLoading: boolean;
+  refreshStock: () => Promise<void>;
 }
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
@@ -54,9 +45,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [stockAvailable, setStockAvailable] = useState<number | null>(null);
   const [isCartLoading, setIsCartLoading] = useState(true);
 
-  // Load stock (sama seperti di page produk Anda sebelumnya)
-  useEffect(() => {
-    async function loadStock() {
+  // Function untuk load stock dari Supabase
+  const loadStock = useCallback(async () => {
+    try {
       const { data, error } = await supabase
         .from("accounts_stock")
         .select("id, is_used");
@@ -65,63 +56,79 @@ export function CartProvider({ children }: { children: ReactNode }) {
         console.error("Load stock error:", error);
         return;
       }
+
       const rows = (data ?? []) as Array<{ id: string; is_used?: boolean | null }>;
       const available = rows.filter((row) => row.is_used !== true).length;
       setStockAvailable(available);
+    } catch (error) {
+      console.error("Failed to load stock:", error);
     }
+  }, []);
 
+  // Load stock saat pertama kali mount dan set interval
+  useEffect(() => {
     loadStock();
-    const interval = setInterval(loadStock, 30000); // refresh stock
+    const interval = setInterval(loadStock, 30000); // Refresh setiap 30 detik
     return () => clearInterval(interval);
-  }, []);
+  }, [loadStock]);
 
-  // Load cart from localStorage on mount (client-side)
+  // Load cart dari localStorage saat pertama kali mount
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const raw = window.localStorage.getItem(CART_STORAGE_KEY);
-    if (raw) {
-      try {
-        setCart(JSON.parse(raw) as CartItem[]);
-      } catch (e) {
-        console.warn("Gagal parse cart dari localStorage", e);
+    
+    try {
+      const raw = window.localStorage.getItem(CART_STORAGE_KEY);
+      if (raw) {
+        const parsedCart = JSON.parse(raw) as CartItem[];
+        setCart(parsedCart);
       }
+    } catch (e) {
+      console.warn("Gagal parse cart dari localStorage", e);
+    } finally {
+      setIsCartLoading(false);
     }
-    setIsCartLoading(false);
   }, []);
 
-  // Save cart to localStorage on change
+  // Simpan cart ke localStorage setiap kali cart berubah
   useEffect(() => {
-    if (isCartLoading) return; // Jangan save saat pertama kali load
+    if (isCartLoading) return;
     if (typeof window === "undefined") return;
-    window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cart));
+    
+    try {
+      window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cart));
+    } catch (e) {
+      console.warn("Gagal simpan cart ke localStorage", e);
+    }
   }, [cart, isCartLoading]);
 
-  // --- Memoized Values (Perhitungan otomatis) ---
+  // Hitung total units di cart
   const totalUnitsInCart = useMemo(
     () => cart.reduce((sum, item) => sum + item.unitCount * item.quantity, 0),
     [cart]
   );
 
+  // Hitung total items di cart
   const totalItems = useMemo(
     () => cart.reduce((sum, item) => sum + item.quantity, 0),
     [cart]
   );
 
+  // Hitung total harga
   const totalPrice = useMemo(
     () => cart.reduce((sum, item) => sum + item.price * item.quantity, 0),
     [cart]
   );
 
-  // --- Cart Actions ---
-  const addToCart = (product: ProductRow): boolean => {
+  // Tambah produk ke cart
+  const addToCart = useCallback((product: ProductRow): boolean => {
     const existing = cart.find((c) => c.productId === product.id);
     const unitsInCartExcludingThis =
       totalUnitsInCart - (existing ? existing.unitCount * existing.quantity : 0);
     const newQuantity = existing ? existing.quantity + 1 : 1;
     const newTotalUnits = unitsInCartExcludingThis + product.unit_count * newQuantity;
 
+    // Validasi stock
     if (stockAvailable !== null && newTotalUnits > stockAvailable) {
-      // Gagal, stok tidak cukup
       return false;
     }
 
@@ -142,16 +149,16 @@ export function CartProvider({ children }: { children: ReactNode }) {
         },
       ];
     });
-    return true; // Sukses
-  };
-  
-  const buyNow = (product: ProductRow): boolean => {
-    // Cek apakah 1 item ini saja muat di stok
+    return true;
+  }, [cart, totalUnitsInCart, stockAvailable]);
+
+  // Buy now - langsung clear cart dan isi dengan 1 produk ini
+  const buyNow = useCallback((product: ProductRow): boolean => {
+    // Validasi stock
     if (stockAvailable !== null && product.unit_count > stockAvailable) {
-      return false; // Stok tidak cukup
+      return false;
     }
-    
-    // Set keranjang HANYA dengan item ini
+
     const newItem: CartItem = {
       productId: product.id,
       name: product.name,
@@ -160,10 +167,11 @@ export function CartProvider({ children }: { children: ReactNode }) {
       quantity: 1,
     };
     setCart([newItem]);
-    return true; // Sukses
-  };
+    return true;
+  }, [stockAvailable]);
 
-  const updateQuantity = (
+  // Update quantity produk di cart
+  const updateQuantity = useCallback((
     productId: string,
     newQuantity: number
   ): boolean => {
@@ -179,8 +187,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
       totalUnitsInCart - item.unitCount * item.quantity;
     const newTotalUnits = unitsInCartExcludingThis + item.unitCount * newQuantity;
 
+    // Validasi stock
     if (stockAvailable !== null && newTotalUnits > stockAvailable) {
-      return false; // Gagal, stok tidak cukup
+      return false;
     }
 
     setCart((prev) =>
@@ -188,16 +197,23 @@ export function CartProvider({ children }: { children: ReactNode }) {
         c.productId === productId ? { ...c, quantity: newQuantity } : c
       )
     );
-    return true; // Sukses
-  };
+    return true;
+  }, [cart, totalUnitsInCart, stockAvailable]);
 
-  const removeFromCart = (productId: string) => {
+  // Hapus produk dari cart
+  const removeFromCart = useCallback((productId: string) => {
     setCart((prev) => prev.filter((c) => c.productId !== productId));
-  };
+  }, []);
 
-  const clearCart = () => {
+  // Clear semua cart
+  const clearCart = useCallback(() => {
     setCart([]);
-  };
+  }, []);
+
+  // Manual refresh stock (untuk dipanggil setelah checkout, dll)
+  const refreshStock = useCallback(async () => {
+    await loadStock();
+  }, [loadStock]);
 
   return (
     <CartContext.Provider
@@ -213,6 +229,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         removeFromCart,
         clearCart,
         isCartLoading,
+        refreshStock,
       }}
     >
       {children}
@@ -220,7 +237,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
   );
 }
 
-// Custom Hook untuk mempermudah pemakaian
 export function useCart() {
   const context = useContext(CartContext);
   if (context === undefined) {
