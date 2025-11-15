@@ -1,11 +1,9 @@
 import "./globals.css";
 import type { Metadata } from "next";
-// Link tidak perlu lagi di sini, karena sudah di dalam Header component
 import { Inter, Poppins } from "next/font/google";
 
-// Impor provider dan header baru
 import { CartProvider } from "../context/CartContext";
-import Header from "../components/Header"; // Asumsi path ke komponen Header baru
+import Header from "../components/Header"; 
 
 const inter = Inter({
   subsets: ["latin"],
@@ -21,6 +19,11 @@ const poppins = Poppins({
 export const metadata: Metadata = {
   title: "IRA STORE - Jual Akun Gmail & Digital Access",
   description: "Jual akun Gmail & digital access, kirim otomatis via WhatsApp",
+  icons: {
+    icon: '/logo.png',
+    shortcut: '/logo.png',
+    apple: '/logo.png',
+  },
 };
 
 export default function RootLayout({
