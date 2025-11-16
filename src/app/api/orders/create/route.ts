@@ -1,6 +1,6 @@
 // src/app/api/orders/create/route.ts
 import { NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabaseServerClient"; // ← GANTI INI!
+import { getSupabaseAdmin } from "@/lib/supabaseServerClient";
 import { buildPakasirPayUrl } from "@/lib/pakasir";
 
 interface CreateOrderItemInput {
@@ -17,7 +17,7 @@ interface CreateOrderBody {
 export async function POST(req: Request) {
   try {
     // Inisialisasi Supabase Admin Client
-    const supabase = getSupabaseAdmin(); // ← PENTING: Pakai getSupabaseAdmin()
+    const supabase = getSupabaseAdmin();
     
     const body = (await req.json()) as CreateOrderBody;
 
@@ -43,10 +43,10 @@ export async function POST(req: Request) {
     // Get unique product IDs
     const productIds = [...new Set(items.map((it) => it.productId))];
 
-    // Fetch products from database
+    // Fetch products from database - INCLUDE product_type dan file_url
     const { data: productsData, error: productsError } = await supabase
       .from("products")
-      .select("id, name, price, unit_count, is_active")
+      .select("id, name, price, unit_count, is_active, product_type, file_url")
       .in("id", productIds);
 
     if (productsError || !productsData) {
@@ -117,36 +117,74 @@ export async function POST(req: Request) {
       0
     );
 
-    // Check available stock
-    const { data: stockRows, error: stockErr } = await supabase
-      .from("accounts_stock")
-      .select("id, is_used");
+    // Separate gmail and non-gmail products
+    const gmailProducts = normalized.filter(
+      (it) => it.product.product_type === "gmail"
+    );
+    const ebookProducts = normalized.filter(
+      (it) => it.product.product_type === "ebook"
+    );
+    const otherProducts = normalized.filter(
+      (it) => it.product.product_type !== "gmail" && it.product.product_type !== "ebook"
+    );
 
-    if (stockErr) {
-      console.error("Stock check error:", stockErr);
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Gagal mengecek stok akun: " +
-            (stockErr?.message || "unknown error"),
-        },
-        { status: 500 }
+    console.log(`[Order Create] Gmail: ${gmailProducts.length}, E-book: ${ebookProducts.length}, Other: ${otherProducts.length}`);
+
+    // Check stock ONLY for gmail products
+    if (gmailProducts.length > 0) {
+      const totalGmailUnits = gmailProducts.reduce(
+        (sum, it) => sum + it.unitCount,
+        0
       );
+
+      console.log(`[Order Create] Checking stock for ${totalGmailUnits} Gmail accounts...`);
+
+      const { data: stockRows, error: stockErr } = await supabase
+        .from("accounts_stock")
+        .select("id, is_used");
+
+      if (stockErr) {
+        console.error("Stock check error:", stockErr);
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              "Gagal mengecek stok akun: " +
+              (stockErr?.message || "unknown error"),
+          },
+          { status: 500 }
+        );
+      }
+
+      const availableStock = (stockRows ?? []).filter(
+        (row: any) => row.is_used !== true
+      ).length;
+
+      console.log(`[Order Create] Available Gmail stock: ${availableStock}`);
+
+      if (availableStock < totalGmailUnits) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Stok akun Gmail tidak cukup. Tersedia: ${availableStock}, dibutuhkan: ${totalGmailUnits}`,
+          },
+          { status: 400 }
+        );
+      }
     }
 
-    const availableStock = (stockRows ?? []).filter(
-      (row: any) => row.is_used !== true
-    ).length;
-
-    if (availableStock < totalUnits) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: `Stok akun tidak cukup. Tersedia: ${availableStock}, dibutuhkan: ${totalUnits}`,
-        },
-        { status: 400 }
-      );
+    // Validate ebook products have file_url
+    for (const item of ebookProducts) {
+      if (!item.product.file_url) {
+        console.error(`[Order Create] E-book ${item.product.name} missing file_url`);
+        return NextResponse.json(
+          {
+            success: false,
+            error: `E-book "${item.product.name}" belum memiliki file download. Hubungi admin.`,
+          },
+          { status: 400 }
+        );
+      }
     }
 
     // Insert order to database
@@ -177,6 +215,7 @@ export async function POST(req: Request) {
     }
 
     const orderId: string = orderInsert.id;
+    console.log(`[Order Create] Order created: ${orderId}`);
 
     // Insert order items
     const orderItemsPayload = normalized.map((it) => ({
@@ -205,11 +244,26 @@ export async function POST(req: Request) {
       );
     }
 
+    console.log(`[Order Create] ${orderItemsPayload.length} items inserted`);
+
     // Build payment URL using Pakasir
     const paymentUrl = buildPakasirPayUrl({
       orderId,
       amount: grandTotal,
     });
+
+    if (!paymentUrl) {
+      console.error("Failed to build payment URL");
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Gagal membuat URL pembayaran. Hubungi admin.",
+        },
+        { status: 500 }
+      );
+    }
+
+    console.log(`[Order Create] Payment URL created for order ${orderId}`);
 
     return NextResponse.json(
       {

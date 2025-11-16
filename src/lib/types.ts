@@ -2,6 +2,8 @@
 
 export type OrderStatus = "pending" | "paid" | "completed" | "cancelled";
 
+export type ProductType = "gmail" | "ebook" | "app"; 
+
 export interface CartItemInput {
   productId: string;
   quantity: number;
@@ -10,9 +12,15 @@ export interface CartItemInput {
 export interface ProductRow {
   id: string;
   name: string;
+  slug?: string; 
+  description?: string; 
   price: number;
   unit_count: number;
   is_active: boolean;
+  product_type: ProductType; 
+  file_url?: string | null; 
+  created_at?: string; 
+  updated_at?: string; 
 }
 
 export interface AccountStockRow {

@@ -20,6 +20,10 @@ async function sendWhatsapp(
   let formattedTarget = target.trim();
   if (formattedTarget.startsWith("0")) {
     formattedTarget = "62" + formattedTarget.substring(1);
+  } else if (formattedTarget.startsWith("+")) {
+    formattedTarget = formattedTarget.substring(1);
+  } else if (!formattedTarget.startsWith("62")) {
+    formattedTarget = "62" + formattedTarget;
   }
 
   const url = "https://api.fonnte.com/send";
@@ -122,7 +126,7 @@ export async function POST(request: Request) {
       console.log(`[Webhook] 🔍 Step 1: Fetching order from database...`);
       const { data: order, error: orderError } = await supabase
         .from("orders")
-        .select("status, buyer_phone")
+        .select("status, buyer_phone, buyer_email")
         .eq("id", orderId)
         .single();
 
@@ -151,11 +155,16 @@ export async function POST(request: Request) {
       }
       console.log(`[Webhook] ✅ Order status updated to 'paid'`);
 
-      // 5. AMBIL ORDER ITEMS
-      console.log(`[Webhook] 🔍 Step 3: Fetching order items...`);
+      // 5. AMBIL ORDER ITEMS DENGAN PRODUCT INFO
+      console.log(`[Webhook] 🔍 Step 3: Fetching order items with product details...`);
       const { data: items, error: itemsError } = await supabase
         .from("order_items")
-        .select("id, effective_unit_count")
+        .select(`
+          id, 
+          effective_unit_count,
+          quantity,
+          products!inner(id, name, product_type, file_url)
+        `)
         .eq("order_id", orderId);
 
       if (itemsError || !items) {
@@ -164,116 +173,187 @@ export async function POST(request: Request) {
       }
 
       console.log(`[Webhook] ✅ Found ${items.length} items`);
+
+      // 🔥 DEBUG LOG - DETAIL SETIAP ITEM
+      console.log(`[Webhook] 🔍 ========== DEBUG ITEMS START ==========`);
+      console.log(`[Webhook] 📦 Total items received: ${items.length}`);
+      items.forEach((item: any, index: number) => {
+        console.log(`[Webhook] 📋 Item #${index + 1}:`, {
+          product_id: item.products.id,
+          name: item.products.name,
+          product_type: item.products.product_type,
+          quantity: item.quantity,
+          effective_unit_count: item.effective_unit_count,
+          has_file_url: !!item.products.file_url,
+          file_url: item.products.file_url || 'NULL'
+        });
+      });
+
+      // 6. PISAHKAN BERDASARKAN PRODUCT TYPE
+      const gmailItems = items.filter((item: any) => item.products.product_type === "gmail");
+      const ebookItems = items.filter((item: any) => item.products.product_type === "ebook");
       
-      const totalUnitsNeeded = items.reduce(
-        (sum, item) => sum + item.effective_unit_count,
-        0
-      );
+      console.log(`[Webhook] 📊 Filtered Results:`);
+      console.log(`[Webhook]    - Gmail items: ${gmailItems.length}`);
+      console.log(`[Webhook]    - Ebook items: ${ebookItems.length}`);
       
-      console.log(`[Webhook] 📊 Total units needed: ${totalUnitsNeeded}`);
-
-      if (totalUnitsNeeded === 0) {
-        throw new Error("Total units needed is 0");
+      if (gmailItems.length > 0) {
+        console.log(`[Webhook] 🔐 Gmail products:`, gmailItems.map((i: any) => i.products.name));
       }
-
-      // 6. AMBIL STOK
-      console.log(`[Webhook] 🔍 Step 4: Fetching available stock...`);
-      const { data: stokAkun, error: stokError } = await supabase
-        .from("accounts_stock")
-        .select("id, username, password")
-        .eq("is_used", false)
-        .limit(totalUnitsNeeded);
-
-      if (stokError) {
-        console.error(`[Webhook] ❌ Failed to fetch stock:`, stokError.message);
-        throw new Error(`Gagal ambil stok: ${stokError.message}`);
+      if (ebookItems.length > 0) {
+        console.log(`[Webhook] 📚 Ebook products:`, ebookItems.map((i: any) => i.products.name));
       }
+      console.log(`[Webhook] 🔍 ========== DEBUG ITEMS END ==========`);
 
-      console.log(`[Webhook] ✅ Found ${stokAkun?.length || 0} available accounts`);
+      let pesanWA = `*✅ KONFIRMASI PEMBAYARAN*\n`;
+      pesanWA += `Pembayaran Anda telah berhasil diverifikasi.\n`;
+      pesanWA += `━━━━━━━━━━━━━━━━━━━━━\n`;
+      pesanWA += `📋 *INFORMASI PESANAN*\n`;
+      pesanWA += `  Order ID: ${orderId}\n`;
+      pesanWA += `  Email: ${order.buyer_email}\n`;
+      pesanWA += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
-      // 7. CEK KECUKUPAN STOK
-      if (!stokAkun || stokAkun.length < totalUnitsNeeded) {
-        console.error(
-          `[Webhook] ❌ INSUFFICIENT STOCK! Needed: ${totalUnitsNeeded}, Available: ${stokAkun?.length || 0}`
+      // 7. PROSES GMAIL ITEMS (jika ada)
+      if (gmailItems.length > 0) {
+        const totalGmailUnits = gmailItems.reduce(
+          (sum, item: any) => sum + item.effective_unit_count,
+          0
         );
         
-        await sendWhatsapp(
-          order.buyer_phone,
-          `Halo, pembayaran order ${orderId} BERHASIL, tapi stok kami sedang habis. Mohon hubungi admin untuk refund.`,
-          orderId
-        );
+        console.log(`[Webhook] 📊 Total Gmail units needed: ${totalGmailUnits}`);
+
+        // AMBIL STOK GMAIL
+        console.log(`[Webhook] 🔍 Step 4: Fetching Gmail stock...`);
+        const { data: stokAkun, error: stokError } = await supabase
+          .from("accounts_stock")
+          .select("id, username, password")
+          .eq("is_used", false)
+          .limit(totalGmailUnits);
+
+        if (stokError) {
+          console.error(`[Webhook] ❌ Failed to fetch stock:`, stokError.message);
+          throw new Error(`Gagal ambil stok: ${stokError.message}`);
+        }
+
+        console.log(`[Webhook] ✅ Found ${stokAkun?.length || 0} available Gmail accounts`);
+
+        // CEK KECUKUPAN STOK
+        if (!stokAkun || stokAkun.length < totalGmailUnits) {
+          console.error(
+            `[Webhook] ❌ INSUFFICIENT STOCK! Needed: ${totalGmailUnits}, Available: ${stokAkun?.length || 0}`
+          );
+          
+          await sendWhatsapp(
+            order.buyer_phone,
+            `Halo, pembayaran order ${orderId} BERHASIL, tapi stok Gmail kami sedang habis. Mohon hubungi admin untuk refund atau penggantian.`,
+            orderId
+          );
+          
+          await supabase.from("orders").update({ status: "cancelled" }).eq("id", orderId);
+          return NextResponse.json({ success: true, message: "Gmail out of stock" });
+        }
+
+        // FORMAT PESAN AKUN GMAIL
+        const listAkun = stokAkun
+          .map((akun) => `Email: ${akun.username}\nPassword: ${akun.password}`)
+          .join("\n\n");
         
-        await supabase.from("orders").update({ status: "cancelled" }).eq("id", orderId);
-        return NextResponse.json({ success: true, message: "Out of stock" });
+        pesanWA += `🔐 *AKUN GMAIL* (${totalGmailUnits} akun)\n\n`;
+        pesanWA += `${listAkun}\n`;
+        pesanWA += `━━━━━━━━━━━━━━━━━━━━━\n`;
+        pesanWA += `⚠️ *PENTING - Keamanan Akun*\n\n`;
+        pesanWA += `  Demi keamanan, harap segera:\n`;
+        pesanWA += `  1. Login ke akun Anda\n`;
+        pesanWA += `  2. Ganti password default\n`;
+        pesanWA += `  3. Simpan kredensial dengan aman\n`;
+        pesanWA += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
+
+        // UPDATE STOK GMAIL
+        console.log(`[Webhook] 🔄 Step 5: Updating Gmail stock records...`);
+        let stockIndex = 0;
+        for (const item of gmailItems) {
+          const accountsForItem = stokAkun.slice(
+            stockIndex,
+            stockIndex + item.effective_unit_count
+          );
+          const accountIds = accountsForItem.map((a) => a.id);
+
+          console.log(`[Webhook] 🔄 Marking ${accountIds.length} accounts as used for item ${item.id}`);
+
+          const { error: updateStokError } = await supabase
+            .from("accounts_stock")
+            .update({
+              is_used: true,
+              assigned_order_item_id: item.id,
+            })
+            .in("id", accountIds);
+
+          if (updateStokError) {
+            console.error(`[Webhook] ❌ Failed to update stock:`, updateStokError.message);
+            throw new Error(`Gagal update stok: ${updateStokError.message}`);
+          }
+          
+          stockIndex += item.effective_unit_count;
+        }
+
+        console.log(`[Webhook] ✅ Gmail stock updated successfully`);
       }
 
-      // 8. FORMAT PESAN WA
-      console.log(`[Webhook] 📝 Step 5: Preparing WhatsApp message...`);
-      const listAkun = stokAkun
-        .map((akun) => `Email: ${akun.username}\nPassword: ${akun.password}`)
-        .join("\n\n");
+      // 8. PROSES E-BOOK ITEMS (jika ada)
+      if (ebookItems.length > 0) {
+        console.log(`[Webhook] 📚 Step 6: Processing E-book items...`);
+        
+        pesanWA += `📚 *E-BOOK PREMIUM*\n\n`;
+        
+        for (const item of ebookItems) {
+          const product = item.products;
+          const quantity = item.quantity;
+          
+          pesanWA += `📖 *${product.name}*`;
+          if (quantity > 1) {
+            pesanWA += ` (${quantity}x)\n`;
+          } else {
+            pesanWA += `\n`;
+          }
+          
+          if (product.file_url) {
+            pesanWA += `🔗 Download: ${product.file_url}\n`;
+            console.log(`[Webhook] ✅ E-book "${product.name}" has file_url`);
+          } else {
+            pesanWA += `⚠️ Link download akan dikirim segera via email\n`;
+            console.warn(`[Webhook] ⚠️ E-book "${product.name}" MISSING file_url!`);
+          }
+          pesanWA += `\n`;
+        }
+        
+        pesanWA += `━━━━━━━━━━━━━━━━━━━━━\n`;
+        pesanWA += `💡 *Info E-book*\n\n`;
+        pesanWA += `  ✓ Format PDF Berkualitas HD\n`;
+        pesanWA += `  ✓ Akses Selamanya\n`;
+        pesanWA += `  ✓ Bisa Download Kapan Saja\n`;
+        pesanWA += `  ✓ Update Gratis (Jika Ada)\n`;
+        pesanWA += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
+        
+        console.log(`[Webhook] ✅ E-book items processed`);
+      }
+
+      // 9. CLOSING MESSAGE
+      pesanWA += `_Jika ada pertanyaan, jangan ragu untuk menghubungi kami._\n`;
+      pesanWA += `Terima kasih atas kepercayaan Anda. 🙏\n\n`;
+      pesanWA += `_Pesan otomatis - Mohon tidak membalas_`;
       
-      const pesanWA = `
-      *KONFIRMASI PEMBAYARAN*
-      Pembayaran Anda telah berhasil diverifikasi.
-      ━━━━━━━━━━━━━━━━━━━━━
-      📋 *INFORMASI PESANAN*
-        Order ID: ${orderId}
-      ━━━━━━━━━━━━━━━━━━━━━
-      🔐 *DETAIL AKUN*
-
-        ${listAkun}
-      ━━━━━━━━━━━━━━━━━━━━━
-      ⚠️ *PENTING - Keamanan Akun*
-
-        Demi keamanan, harap segera:
-        1. Login ke akun Anda
-        2. Ganti password default
-        3. Simpan kredensial dengan aman
-
-      ━━━━━━━━━━━━━━━━━━━━━
-      _|Jika ada pertanyaan, jangan ragu untuk menghubungi kami._
-      Terima kasih atas kepercayaan Anda.
-
-      _Pesan otomatis - Mohon tidak membalas_`;
+      // 🔥 DEBUG - LOG PESAN WA SEBELUM DIKIRIM
+      console.log(`[Webhook] 📱 ========== WhatsApp Message Preview ==========`);
+      console.log(pesanWA);
+      console.log(`[Webhook] 📱 ====================================================`);
       
-      // 9. KIRIM WA
-      console.log(`[Webhook] 📱 Step 6: Sending WhatsApp...`);
+      // 10. KIRIM WA
+      console.log(`[Webhook] 📱 Step 7: Sending WhatsApp to ${order.buyer_phone}...`);
       const waSuccess = await sendWhatsapp(order.buyer_phone, pesanWA, orderId);
       
       if (!waSuccess) {
         console.warn("[Webhook] ⚠️ WhatsApp failed to send, but continuing...");
       }
-
-      // 10. UPDATE STOK
-      console.log(`[Webhook] 🔄 Step 7: Updating stock records...`);
-      let stockIndex = 0;
-      for (const item of items) {
-        const accountsForItem = stokAkun.slice(
-          stockIndex,
-          stockIndex + item.effective_unit_count
-        );
-        const accountIds = accountsForItem.map((a) => a.id);
-
-        console.log(`[Webhook] 🔄 Marking ${accountIds.length} accounts as used for item ${item.id}`);
-
-        const { error: updateStokError } = await supabase
-          .from("accounts_stock")
-          .update({
-            is_used: true,
-            assigned_order_item_id: item.id,
-          })
-          .in("id", accountIds);
-
-        if (updateStokError) {
-          console.error(`[Webhook] ❌ Failed to update stock:`, updateStokError.message);
-          throw new Error(`Gagal update stok: ${updateStokError.message}`);
-        }
-        
-        stockIndex += item.effective_unit_count;
-      }
-
-      console.log(`[Webhook] ✅ Stock updated successfully`);
 
       // 11. TANDAI COMPLETED
       console.log(`[Webhook] 🔄 Step 8: Marking order as completed...`);

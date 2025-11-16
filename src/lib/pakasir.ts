@@ -4,13 +4,13 @@ const BASE_URL = "https://app.pakasir.com";
 
 interface BuildPakasirUrlParams {
   orderId: string;
-  amount: number; // rupiah
+  amount: number; 
 }
 
 export function buildPakasirPayUrl(
   params: BuildPakasirUrlParams
 ): string | null {
-  const slug = process.env.PAKASIR_PROJECT_SLUG; // contoh: "gmail-store"
+  const slug = process.env.PAKASIR_PROJECT_SLUG; 
   if (!slug) {
     console.error("PAKASIR_PROJECT_SLUG belum di-set di .env.local");
     return null;
@@ -24,15 +24,16 @@ export function buildPakasirPayUrl(
 
   const url = new URL(`${BASE_URL}/pay/${slug}/${intAmount}`);
 
-  // wajib: order_id
   url.searchParams.set("order_id", params.orderId);
 
-  // redirect ke /thank-you sambil bawa order_id + amount
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  const redirectUrl = `${appUrl}/thank-you?order_id=${encodeURIComponent(
-    params.orderId
-  )}&amount=${intAmount}`;
-  url.searchParams.set("redirect", redirectUrl);
+  const baseRedirectUrl = process.env.PAKASIR_REDIRECT_URL || 
+    `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/thank-you`;
+
+  const redirectUrl = new URL(baseRedirectUrl);
+  redirectUrl.searchParams.set("order_id", params.orderId);
+  redirectUrl.searchParams.set("amount", intAmount.toString());
+  
+  url.searchParams.set("redirect", redirectUrl.toString());
 
   // optional: QRIS ONLY
   if (process.env.PAKASIR_QRIS_ONLY === "1") {
