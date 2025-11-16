@@ -172,7 +172,7 @@ export async function fulfillOrderAndSendWhatsApp(
       message += `📚 *E-BOOK PREMIUM*\n\n`;
       
       for (const item of ebookItems) {
-        const product = item.products;
+        const product = item.products as any;
         const quantity = item.quantity;
         
         message += `📖 *${product.name}*`;
