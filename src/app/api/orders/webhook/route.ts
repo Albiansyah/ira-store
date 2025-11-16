@@ -1,8 +1,6 @@
-// src/app/api/orders/webhook/route.ts
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabaseServerClient";
 
-// --- Fungsi Helper Fonnte ---
 async function sendWhatsapp(
   target: string,
   message: string,
@@ -33,7 +31,6 @@ async function sendWhatsapp(
     countryCode: "62",
   });
 
-  // 1. Log percobaan kirim WA
   const { data: logData, error: logInsertError } = await supabase
     .from("whatsapp_logs")
     .insert({
@@ -63,7 +60,6 @@ async function sendWhatsapp(
 
     const data = await response.json();
 
-    // 2. Update log setelah ada respon
     if (logId) {
       await supabase
         .from("whatsapp_logs")
@@ -92,7 +88,6 @@ async function sendWhatsapp(
   }
 }
 
-// --- FUNGSI UTAMA WEBHOOK ---
 export async function POST(request: Request) {
   let orderId: string | null = null;
 
@@ -103,7 +98,6 @@ export async function POST(request: Request) {
     console.log("[Webhook] 📥 --- WEBHOOK DITERIMA DARI PAKASIR ---");
     console.log(JSON.stringify(dataDariPakasir, null, 2));
 
-    // 1. AMBIL DATA PENTING
     orderId = dataDariPakasir.order_id;
     const statusPembayaran = dataDariPakasir.status;
 
@@ -114,7 +108,6 @@ export async function POST(request: Request) {
 
     console.log(`[Webhook] 📦 Order ID: ${orderId}, Status: ${statusPembayaran}`);
 
-    // 2. PROSES HANYA JIKA LUNAS
     if (
       statusPembayaran === "completed" || 
       statusPembayaran === "PAID" || 
@@ -122,7 +115,6 @@ export async function POST(request: Request) {
     ) {
       console.log(`[Webhook] ✅ Payment completed. Processing order ${orderId}...`);
 
-      // 3. CEK ORDER DI SUPABASE
       console.log(`[Webhook] 🔍 Step 1: Fetching order from database...`);
       const { data: order, error: orderError } = await supabase
         .from("orders")
@@ -142,7 +134,6 @@ export async function POST(request: Request) {
         return NextResponse.json({ success: true, message: "Already processed" });
       }
 
-      // 4. UPDATE STATUS KE 'PAID'
       console.log(`[Webhook] 🔄 Step 2: Updating order status to 'paid'...`);
       const { error: updatePaidError } = await supabase
         .from("orders")
@@ -155,7 +146,6 @@ export async function POST(request: Request) {
       }
       console.log(`[Webhook] ✅ Order status updated to 'paid'`);
 
-      // 5. AMBIL ORDER ITEMS DENGAN PRODUCT INFO
       console.log(`[Webhook] 🔍 Step 3: Fetching order items with product details...`);
       const { data: items, error: itemsError } = await supabase
         .from("order_items")
@@ -174,7 +164,6 @@ export async function POST(request: Request) {
 
       console.log(`[Webhook] ✅ Found ${items.length} items`);
 
-      // 🔥 DEBUG LOG - DETAIL SETIAP ITEM
       console.log(`[Webhook] 🔍 ========== DEBUG ITEMS START ==========`);
       console.log(`[Webhook] 📦 Total items received: ${items.length}`);
       items.forEach((item: any, index: number) => {
@@ -189,7 +178,6 @@ export async function POST(request: Request) {
         });
       });
 
-      // 6. PISAHKAN BERDASARKAN PRODUCT TYPE
       const gmailItems = items.filter((item: any) => item.products.product_type === "gmail");
       const ebookItems = items.filter((item: any) => item.products.product_type === "ebook");
       
@@ -213,7 +201,6 @@ export async function POST(request: Request) {
       pesanWA += `  Email: ${order.buyer_email}\n`;
       pesanWA += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
-      // 7. PROSES GMAIL ITEMS (jika ada)
       if (gmailItems.length > 0) {
         const totalGmailUnits = gmailItems.reduce(
           (sum, item: any) => sum + item.effective_unit_count,
@@ -222,7 +209,6 @@ export async function POST(request: Request) {
         
         console.log(`[Webhook] 📊 Total Gmail units needed: ${totalGmailUnits}`);
 
-        // AMBIL STOK GMAIL
         console.log(`[Webhook] 🔍 Step 4: Fetching Gmail stock...`);
         const { data: stokAkun, error: stokError } = await supabase
           .from("accounts_stock")
@@ -237,7 +223,6 @@ export async function POST(request: Request) {
 
         console.log(`[Webhook] ✅ Found ${stokAkun?.length || 0} available Gmail accounts`);
 
-        // CEK KECUKUPAN STOK
         if (!stokAkun || stokAkun.length < totalGmailUnits) {
           console.error(
             `[Webhook] ❌ INSUFFICIENT STOCK! Needed: ${totalGmailUnits}, Available: ${stokAkun?.length || 0}`
@@ -253,7 +238,6 @@ export async function POST(request: Request) {
           return NextResponse.json({ success: true, message: "Gmail out of stock" });
         }
 
-        // FORMAT PESAN AKUN GMAIL
         const listAkun = stokAkun
           .map((akun) => `Email: ${akun.username}\nPassword: ${akun.password}`)
           .join("\n\n");
@@ -268,7 +252,6 @@ export async function POST(request: Request) {
         pesanWA += `  3. Simpan kredensial dengan aman\n`;
         pesanWA += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
-        // UPDATE STOK GMAIL
         console.log(`[Webhook] 🔄 Step 5: Updating Gmail stock records...`);
         let stockIndex = 0;
         for (const item of gmailItems) {
@@ -299,14 +282,13 @@ export async function POST(request: Request) {
         console.log(`[Webhook] ✅ Gmail stock updated successfully`);
       }
 
-      // 8. PROSES E-BOOK ITEMS (jika ada)
       if (ebookItems.length > 0) {
         console.log(`[Webhook] 📚 Step 6: Processing E-book items...`);
         
         pesanWA += `📚 *E-BOOK PREMIUM*\n\n`;
         
         for (const item of ebookItems) {
-          const product = item.products;
+          const product = item.products as any;
           const quantity = item.quantity;
           
           pesanWA += `📖 *${product.name}*`;
@@ -337,17 +319,14 @@ export async function POST(request: Request) {
         console.log(`[Webhook] ✅ E-book items processed`);
       }
 
-      // 9. CLOSING MESSAGE
       pesanWA += `_Jika ada pertanyaan, jangan ragu untuk menghubungi kami._\n`;
       pesanWA += `Terima kasih atas kepercayaan Anda. 🙏\n\n`;
       pesanWA += `_Pesan otomatis - Mohon tidak membalas_`;
       
-      // 🔥 DEBUG - LOG PESAN WA SEBELUM DIKIRIM
       console.log(`[Webhook] 📱 ========== WhatsApp Message Preview ==========`);
       console.log(pesanWA);
       console.log(`[Webhook] 📱 ====================================================`);
       
-      // 10. KIRIM WA
       console.log(`[Webhook] 📱 Step 7: Sending WhatsApp to ${order.buyer_phone}...`);
       const waSuccess = await sendWhatsapp(order.buyer_phone, pesanWA, orderId);
       
@@ -355,7 +334,6 @@ export async function POST(request: Request) {
         console.warn("[Webhook] ⚠️ WhatsApp failed to send, but continuing...");
       }
 
-      // 11. TANDAI COMPLETED
       console.log(`[Webhook] 🔄 Step 8: Marking order as completed...`);
       const { error: completeError } = await supabase
         .from("orders")
