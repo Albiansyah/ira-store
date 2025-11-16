@@ -20,6 +20,7 @@ import {
   Filter,
   AlertCircle,
   TrendingUp,
+  RefreshCw,
 } from "lucide-react";
 import { Inter, Poppins } from "next/font/google";
 
@@ -35,8 +36,14 @@ interface OrderRow {
   buyer_email: string;
   buyer_phone: string;
   status: string;
-  total_price: number;
   created_at: string;
+  order_items?: Array<{
+    total_price: number;
+  }>;
+}
+
+interface OrderWithTotal extends OrderRow {
+  total_price: number;
 }
 
 interface StockAccount {
@@ -64,10 +71,10 @@ function Toast({ message, type = "success", onClose }: any) {
           : "bg-blue-500/90 border-blue-400 text-white"
       }`}
     >
-      {type === "success" && <CheckCircle2 className="w-4 h-4 md:w-5 md:h-5 flex-shrink-0" />}
-      {type === "error" && <AlertCircle className="w-4 h-4 md:w-5 md:h-5 flex-shrink-0" />}
+      {type === "success" && <CheckCircle2 className="w-4 h-4 md:w-5 md:h-5 shrink-0" />}
+      {type === "error" && <AlertCircle className="w-4 h-4 md:w-5 md:h-5 shrink-0" />}
       <p className="text-xs md:text-sm font-medium flex-1">{message}</p>
-      <button onClick={onClose} className="ml-1 hover:opacity-70 flex-shrink-0">
+      <button onClick={onClose} className="ml-1 hover:opacity-70 shrink-0">
         <X className="w-4 h-4" />
       </button>
     </div>
@@ -84,7 +91,7 @@ function ConfirmModal({ isOpen, onClose, onConfirm, title, message, type = "dang
         <div className="p-5 md:p-6 space-y-4">
           <div className="flex items-start gap-3 md:gap-4">
             <div
-              className={`p-2.5 md:p-3 rounded-full flex-shrink-0 ${
+              className={`p-2.5 md:p-3 rounded-full shrink-0 ${
                 type === "danger" ? "bg-red-500/20" : "bg-blue-500/20"
               }`}
             >
@@ -130,10 +137,12 @@ function ConfirmModal({ isOpen, onClose, onConfirm, title, message, type = "dang
 export default function AdminDashboardPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<"orders" | "stock" | "finance">("orders");
-  const [orders, setOrders] = useState<OrderRow[]>([]);
+  const [orders, setOrders] = useState<OrderWithTotal[]>([]);
   const [stockAccounts, setStockAccounts] = useState<StockAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
 
   // Search states
   const [orderSearchQuery, setOrderSearchQuery] = useState("");
@@ -175,28 +184,122 @@ export default function AdminDashboardPage() {
     }
   }, [router]);
 
-  // ===== LOAD ORDERS =====
-  useEffect(() => {
-    async function loadOrders() {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from("orders")
-        .select("id, buyer_email, buyer_phone, status, total_price, created_at")
-        .order("created_at", { ascending: false });
+  // ===== LOAD ORDERS WITH REALTIME =====
+  async function loadOrders(silent = false) {
+    if (!silent) setLoading(true);
+    
+    const { data, error } = await supabase
+      .from("orders")
+      .select(`
+        id,
+        buyer_email,
+        buyer_phone,
+        status,
+        created_at,
+        order_items (
+          total_price
+        )
+      `)
+      .order("created_at", { ascending: false });
 
-      if (error) {
-        console.error("Load orders error:", error);
-        showToast("Gagal memuat pesanan", "error");
-      } else if (data) {
-        setOrders(data as OrderRow[]);
-      }
-      setLoading(false);
+    if (error) {
+      console.error("Load orders error:", error);
+      if (!silent) showToast("Gagal memuat pesanan", "error");
+    } else if (data) {
+      // Transform data to include total_price
+      const transformedOrders: OrderWithTotal[] = data.map((order: any) => ({
+        ...order,
+        total_price: order.order_items?.reduce(
+          (sum: number, item: any) => sum + (item.total_price || 0),
+          0
+        ) || 0,
+      }));
+      setOrders(transformedOrders);
+      setLastUpdate(new Date());
     }
+    
+    if (!silent) setLoading(false);
+  }
+
+  // Initial load
+  useEffect(() => {
     loadOrders();
   }, []);
 
-  // ===== LOAD STOCK =====
-  async function loadStock() {
+  // 🔥 REALTIME SUBSCRIPTION untuk orders
+  useEffect(() => {
+    const channel = supabase
+      .channel("orders-changes")
+      .on(
+        "postgres_changes",
+        {
+          event: "*", // INSERT, UPDATE, DELETE
+          schema: "public",
+          table: "orders",
+        },
+        async (payload) => {
+          console.log("🔔 Order changed:", payload);
+          
+          // Reload data untuk dapetin total_price dari join
+          await loadOrders(true);
+          
+          if (payload.eventType === "INSERT") {
+            showToast("📥 Pesanan baru masuk!", "info");
+          } else if (payload.eventType === "UPDATE") {
+            const updatedOrder = payload.new as any;
+            if (updatedOrder.status === "completed") {
+              showToast("✅ Pesanan berhasil diproses!", "success");
+            }
+          }
+          
+          setLastUpdate(new Date());
+        }
+      )
+      .subscribe();
+
+    // Also listen to order_items changes (affects total_price)
+    const itemsChannel = supabase
+      .channel("order-items-changes")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "order_items",
+        },
+        async (payload) => {
+          console.log("🔔 Order item changed:", payload);
+          await loadOrders(true);
+          setLastUpdate(new Date());
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+      supabase.removeChannel(itemsChannel);
+    };
+  }, []);
+
+  // 🔥 AUTO POLLING setiap 30 detik (backup jika realtime gagal)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadOrders(true); // silent reload
+    }, 30000); // 30 detik
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Manual refresh
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true);
+    await loadOrders(true);
+    showToast("🔄 Data berhasil diperbarui!", "success");
+    setTimeout(() => setIsRefreshing(false), 1000);
+  };
+
+  // ===== LOAD STOCK WITH REALTIME =====
+  async function loadStock(silent = false) {
     const { data, error } = await supabase
       .from("accounts_stock")
       .select("id, username, password, is_used, created_at")
@@ -204,9 +307,10 @@ export default function AdminDashboardPage() {
 
     if (error) {
       console.error("Load stock error:", error);
-      showToast("Gagal memuat stok", "error");
+      if (!silent) showToast("Gagal memuat stok", "error");
     } else if (data) {
       setStockAccounts(data as StockAccount[]);
+      setLastUpdate(new Date());
     }
   }
 
@@ -214,6 +318,45 @@ export default function AdminDashboardPage() {
     if (activeTab === "stock") {
       loadStock();
     }
+  }, [activeTab]);
+
+  // 🔥 REALTIME SUBSCRIPTION untuk stock
+  useEffect(() => {
+    if (activeTab !== "stock") return;
+
+    const channel = supabase
+      .channel("stock-changes")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "accounts_stock",
+        },
+        (payload) => {
+          console.log("🔔 Stock changed:", payload);
+          
+          if (payload.eventType === "INSERT") {
+            const newStock = payload.new as StockAccount;
+            setStockAccounts((prev) => [newStock, ...prev]);
+          } else if (payload.eventType === "UPDATE") {
+            const updatedStock = payload.new as StockAccount;
+            setStockAccounts((prev) =>
+              prev.map((s) => (s.id === updatedStock.id ? updatedStock : s))
+            );
+          } else if (payload.eventType === "DELETE") {
+            const deletedId = payload.old.id;
+            setStockAccounts((prev) => prev.filter((s) => s.id !== deletedId));
+          }
+          
+          setLastUpdate(new Date());
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [activeTab]);
 
   // ===== ORDER ACTIONS =====
@@ -231,7 +374,7 @@ export default function AdminDashboardPage() {
         showToast(`Gagal memproses order: ${data.error}`, "error");
       } else {
         showToast("Order berhasil diproses dan WA dikirim! 🎉", "success");
-        setTimeout(() => window.location.reload(), 1500);
+        // Data akan auto-update via realtime subscription
       }
     } catch (err: any) {
       console.error("Mark paid error:", err);
@@ -270,7 +413,7 @@ export default function AdminDashboardPage() {
           setSingleUsername("");
           setSinglePassword("");
           setShowAddStock(false);
-          loadStock();
+          // Data akan auto-update via realtime
         }
       } catch (err: any) {
         console.error("Add stock error:", err);
@@ -321,7 +464,7 @@ export default function AdminDashboardPage() {
         showToast(`Berhasil menambahkan ${accounts.length} akun! 🚀`, "success");
         setBulkStockText("");
         setShowAddStock(false);
-        loadStock();
+        // Data akan auto-update via realtime
       }
     } catch (err: any) {
       console.error("Add stock error:", err);
@@ -343,7 +486,7 @@ export default function AdminDashboardPage() {
           showToast("Gagal menghapus: " + error.message, "error");
         } else {
           showToast("Akun berhasil dihapus!", "success");
-          setStockAccounts((prev) => prev.filter((s) => s.id !== id));
+          // Data akan auto-update via realtime
           setSelectedStockIds((prev) => prev.filter((sid) => sid !== id));
         }
       },
@@ -382,9 +525,7 @@ export default function AdminDashboardPage() {
           showToast("Gagal menghapus akun terpilih: " + error.message, "error");
         } else {
           showToast("Berhasil menghapus akun terpilih! 🗑️", "success");
-          setStockAccounts((prev) =>
-            prev.filter((acc) => !selectedStockIds.includes(acc.id))
-          );
+          // Data akan auto-update via realtime
           setSelectedStockIds([]);
         }
       },
@@ -455,9 +596,18 @@ export default function AdminDashboardPage() {
     []
   );
 
+  const timeAgo = useMemo(() => {
+    const seconds = Math.floor((new Date().getTime() - lastUpdate.getTime()) / 1000);
+    if (seconds < 60) return `${seconds} detik lalu`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes} menit lalu`;
+    const hours = Math.floor(minutes / 60);
+    return `${hours} jam lalu`;
+  }, [lastUpdate]);
+
   return (
     <main
-      className={`${inter.variable} ${poppins.variable} min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-50 font-sans`}
+      className={`${inter.variable} ${poppins.variable} min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-50 font-sans`}
     >
       {/* Toast */}
       {toast && (
@@ -485,23 +635,29 @@ export default function AdminDashboardPage() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 md:gap-6">
           <div>
             <div className="flex items-center gap-2 md:gap-3 mb-3 md:mb-4 flex-wrap">
-              <span className="inline-flex items-center px-2.5 md:px-3 py-1 md:py-1.5 rounded-full text-[10px] md:text-xs font-semibold border border-emerald-500/40 text-emerald-300 bg-emerald-500/10 backdrop-blur-sm">
-                Admin Panel
+              <span className="inline-flex items-center px-2.5 md:px-3 py-1 md:py-1.5 rounded-full text-[10px] md:text-xs font-semibold border border-emerald-500/40 text-emerald-300 bg-emerald-500/10 backdrop-blur-sm animate-pulse">
+                🟢 Live
               </span>
               <span className="text-[10px] md:text-xs text-slate-400 flex items-center gap-1.5">
                 <Clock className="w-3 md:w-3.5 md:h-3.5 h-3" />
                 <span className="hidden sm:inline">{today}</span>
                 <span className="sm:hidden">{new Date().toLocaleDateString("id-ID", { day: "numeric", month: "short" })}</span>
               </span>
+              <button
+                onClick={handleManualRefresh}
+                disabled={isRefreshing}
+                className="text-[10px] md:text-xs text-slate-400 hover:text-emerald-400 flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                title="Refresh data"
+              >
+                <RefreshCw className={`w-3 md:w-3.5 md:h-3.5 h-3 ${isRefreshing ? 'animate-spin' : ''}`} />
+                <span className="hidden sm:inline">{timeAgo}</span>
+              </button>
             </div>
-            <h1 className="text-2xl md:text-5xl font-bold tracking-tight flex items-center gap-2 md:gap-3 bg-gradient-to-r from-slate-50 to-slate-300 bg-clip-text text-transparent">
+            <h1 className="text-2xl md:text-5xl font-bold tracking-tight flex items-center gap-2 md:gap-3 bg-linear-to-r from-slate-50 to-slate-300 bg-clip-text text-transparent">
               Dashboard Admin
-              <span className="text-[10px] md:text-sm font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 md:px-3 py-0.5 md:py-1 rounded-full">
-                Live
-              </span>
             </h1>
             <p className="text-xs md:text-sm text-slate-400 mt-2 md:mt-3 max-w-2xl leading-relaxed">
-              Pantau pesanan, kelola stok akun digital, dan lihat performa pendapatan
+              Pantau pesanan realtime, kelola stok, dan analisa keuangan otomatis
             </p>
           </div>
 
@@ -520,9 +676,10 @@ export default function AdminDashboardPage() {
           </button>
         </div>
 
-        {/* Stats Cards */}
+        {/* Stats Cards - tetap sama seperti kode asli, cuma data sudah realtime */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-5">
-          <div className="group border border-slate-800 bg-gradient-to-br from-slate-900 to-slate-950 rounded-xl md:rounded-2xl p-4 md:p-6 shadow-lg hover:shadow-emerald-500/10 transition-all duration-300 hover:-translate-y-1 hover:border-slate-700">
+          {/* ... Stats cards sama seperti sebelumnya ... */}
+          <div className="group border border-slate-800 bg-linear-to-br from-slate-900 to-slate-950 rounded-xl md:rounded-2xl p-4 md:p-6 shadow-lg hover:shadow-emerald-500/10 transition-all duration-300 hover:-translate-y-1 hover:border-slate-700">
             <div className="flex items-center justify-between mb-3 md:mb-4">
               <div className="w-9 h-9 md:w-12 md:h-12 rounded-lg md:rounded-xl bg-slate-800/80 flex items-center justify-center group-hover:scale-110 transition-transform">
                 <ClipboardList className="w-4 h-4 md:w-6 md:h-6 text-slate-300" />
@@ -545,7 +702,7 @@ export default function AdminDashboardPage() {
             </p>
           </div>
 
-          <div className="group border border-slate-800 bg-gradient-to-br from-amber-900/10 via-slate-900 to-slate-950 rounded-xl md:rounded-2xl p-4 md:p-6 shadow-lg hover:shadow-amber-400/10 transition-all duration-300 hover:-translate-y-1 hover:border-amber-900/50">
+          <div className="group border border-slate-800 bg-linear-to-br from-amber-900/10 via-slate-900 to-slate-950 rounded-xl md:rounded-2xl p-4 md:p-6 shadow-lg hover:shadow-amber-400/10 transition-all duration-300 hover:-translate-y-1 hover:border-amber-900/50">
             <div className="flex items-center justify-between mb-3 md:mb-4">
               <div className="w-9 h-9 md:w-12 md:h-12 rounded-lg md:rounded-xl bg-amber-500/15 flex items-center justify-center group-hover:scale-110 transition-transform">
                 <Package className="w-4 h-4 md:w-6 md:h-6 text-amber-300" />
@@ -568,7 +725,7 @@ export default function AdminDashboardPage() {
             </p>
           </div>
 
-          <div className="group border border-slate-800 bg-gradient-to-br from-emerald-900/10 via-slate-900 to-slate-950 rounded-xl md:rounded-2xl p-4 md:p-6 shadow-lg hover:shadow-emerald-400/10 transition-all duration-300 hover:-translate-y-1 hover:border-emerald-900/50">
+          <div className="group border border-slate-800 bg-linear-to-br from-emerald-900/10 via-slate-900 to-slate-950 rounded-xl md:rounded-2xl p-4 md:p-6 shadow-lg hover:shadow-emerald-400/10 transition-all duration-300 hover:-translate-y-1 hover:border-emerald-900/50">
             <div className="flex items-center justify-between mb-3 md:mb-4">
               <div className="w-9 h-9 md:w-12 md:h-12 rounded-lg md:rounded-xl bg-emerald-500/15 flex items-center justify-center group-hover:scale-110 transition-transform">
                 <DatabaseZap className="w-4 h-4 md:w-6 md:h-6 text-emerald-300" />
@@ -585,7 +742,7 @@ export default function AdminDashboardPage() {
             </p>
           </div>
 
-          <div className="group border border-slate-800 bg-gradient-to-br from-emerald-900/30 via-slate-900 to-slate-950 rounded-xl md:rounded-2xl p-4 md:p-6 shadow-lg hover:shadow-emerald-500/20 transition-all duration-300 hover:-translate-y-1 hover:border-emerald-900/50">
+          <div className="group border border-slate-800 bg-linear-to-br from-emerald-900/30 via-slate-900 to-slate-950 rounded-xl md:rounded-2xl p-4 md:p-6 shadow-lg hover:shadow-emerald-500/20 transition-all duration-300 hover:-translate-y-1 hover:border-emerald-900/50">
             <div className="flex items-center justify-between mb-3 md:mb-4">
               <div className="w-9 h-9 md:w-12 md:h-12 rounded-lg md:rounded-xl bg-emerald-500/20 flex items-center justify-center group-hover:scale-110 transition-transform">
                 <CircleDollarSign className="w-4 h-4 md:w-6 md:h-6 text-emerald-100" />
@@ -666,7 +823,7 @@ export default function AdminDashboardPage() {
                   <h2 className="text-lg md:text-2xl font-bold flex items-center gap-2 md:gap-3 flex-wrap">
                     Daftar Pesanan
                     {pendingOrders > 0 && (
-                      <span className="text-[10px] md:text-xs px-2 md:px-3 py-0.5 md:py-1 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/40 font-semibold">
+                      <span className="text-[10px] md:text-xs px-2 md:px-3 py-0.5 md:py-1 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/40 font-semibold animate-pulse">
                         {pendingOrders} perlu diproses
                       </span>
                     )}
@@ -1090,7 +1247,7 @@ export default function AdminDashboardPage() {
         {activeTab === "finance" && (
           <section className="space-y-4 md:space-y-5">
             <div className="grid md:grid-cols-2 gap-4 md:gap-5">
-              <div className="border border-slate-800 bg-gradient-to-br from-emerald-900/10 to-slate-900 rounded-xl md:rounded-2xl p-5 md:p-6 shadow-xl">
+              <div className="border border-slate-800 bg-linear-to-br from-emerald-900/10 to-slate-900 rounded-xl md:rounded-2xl p-5 md:p-6 shadow-xl">
                 <div className="flex items-center justify-between mb-4 md:mb-5">
                   <h3 className="text-xs md:text-sm font-bold text-slate-400 uppercase tracking-wider">
                     Ringkasan Keuangan
@@ -1135,7 +1292,7 @@ export default function AdminDashboardPage() {
                 </p>
               </div>
 
-              <div className="border border-slate-800 bg-gradient-to-br from-slate-900 to-slate-950 rounded-xl md:rounded-2xl p-5 md:p-6 shadow-xl">
+              <div className="border border-slate-800 bg-linear-to-br from-slate-900 to-slate-950 rounded-xl md:rounded-2xl p-5 md:p-6 shadow-xl">
                 <div className="flex items-center justify-between mb-4 md:mb-5">
                   <h3 className="text-xs md:text-sm font-bold text-slate-400 uppercase tracking-wider">
                     Status Pesanan
@@ -1345,7 +1502,7 @@ export default function AdminDashboardPage() {
 
                   <div className="flex flex-col md:flex-row gap-3 md:gap-4">
                     {/* Format Guide - Stacked on mobile */}
-                    <div className="md:w-72 md:flex-shrink-0 bg-slate-950/60 border border-slate-800 rounded-lg md:rounded-xl p-3 md:p-4 space-y-2 md:space-y-3">
+                    <div className="md:w-72 md:shrink-0 bg-slate-950/60 border border-slate-800 rounded-lg md:rounded-xl p-3 md:p-4 space-y-2 md:space-y-3">
                       <div>
                         <p className="text-[10px] md:text-xs font-bold text-slate-400 mb-1.5 md:mb-2 flex items-center gap-1.5 md:gap-2">
                           <Filter className="w-3 h-3 md:w-3.5 md:h-3.5" />

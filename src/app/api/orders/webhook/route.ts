@@ -213,7 +213,32 @@ export async function POST(request: Request) {
         .map((akun) => `Email: ${akun.username}\nPassword: ${akun.password}`)
         .join("\n\n");
       
-      const pesanWA = `🎉 Pembayaran Berhasil!\n\nOrder ID: ${orderId}\n\nBerikut detail akun Anda:\n\n${listAkun}\n\n⚠️ Harap segera ganti password untuk keamanan.\n\nTerima kasih telah berbelanja! 🙏`;
+      const pesanWA = `✅ *KONFIRMASI PEMBAYARAN*
+        Pembayaran Anda telah berhasil diverifikasi.
+
+        ━━━━━━━━━━━━━━━━━━━━━
+        📋 *INFORMASI PESANAN*
+        Order ID: ${orderId}
+
+        ━━━━━━━━━━━━━━━━━━━━━
+        🔐 *DETAIL AKUN*
+
+        ${listAkun}
+
+        ━━━━━━━━━━━━━━━━━━━━━
+        ⚠️ *PENTING - Keamanan Akun*
+
+        Demi keamanan, harap segera:
+        1. Login ke akun Anda
+        2. Ganti password default
+        3. Simpan kredensial dengan aman
+
+        ━━━━━━━━━━━━━━━━━━━━━
+        Jika ada pertanyaan, jangan ragu untuk menghubungi kami.
+
+        Terima kasih atas kepercayaan Anda.
+
+        _Pesan otomatis - Mohon tidak membalas_`;
       
       // 9. KIRIM WA
       console.log(`[Webhook] 📱 Step 6: Sending WhatsApp...`);
