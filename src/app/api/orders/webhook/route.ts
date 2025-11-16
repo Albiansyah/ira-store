@@ -1,7 +1,8 @@
 // app/api/orders/webhook/route.ts
 
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabaseServerClient"; // Pastikan ini client SERVER
+// GW GANTI PATH-NYA BIAR PASTI BENER
+import { supabase } from "@/lib/supabaseServerClient";
 
 // --- FUNGSI UTAMA WEBHOOK ---
 export async function POST(request: Request) {
