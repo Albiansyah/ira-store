@@ -1,5 +1,4 @@
 'use client'
-
 import Link from "next/link";
 import { useState, useEffect } from "react";
 
@@ -37,7 +36,7 @@ export default function HomePage() {
     return () => clearInterval(timer);
   }, []);
 
-  const [openFaq, setOpenFaq] = useState(null);
+  const [openFaq, setOpenFaq] = useState<number | null>(null);
 
   const faqs = [
     {
