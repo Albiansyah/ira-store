@@ -23,6 +23,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { Inter, Poppins } from "next/font/google";
+import { BookOpen, Plus, Edit, Link as LinkIcon } from "lucide-react";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 const poppins = Poppins({
@@ -54,7 +55,16 @@ interface StockAccount {
   created_at: string;
 }
 
-// Toast Component
+interface EbookProduct {
+  id: string;
+  name: string;
+  description: string | null;
+  price: number;
+  unit_count: number;
+  is_active: boolean;
+  file_url: string | null;
+  created_at: string;
+}
 function Toast({ message, type = "success", onClose }: any) {
   useEffect(() => {
     const timer = setTimeout(onClose, 4000);
@@ -136,9 +146,22 @@ function ConfirmModal({ isOpen, onClose, onConfirm, title, message, type = "dang
 
 export default function AdminDashboardPage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<"orders" | "stock" | "finance">("orders");
+  const [activeTab, setActiveTab] = useState<"orders" | "stock" | "ebooks" | "finance">("orders");
   const [orders, setOrders] = useState<OrderWithTotal[]>([]);
   const [stockAccounts, setStockAccounts] = useState<StockAccount[]>([]);
+  const [ebookProducts, setEbookProducts] = useState<EbookProduct[]>([]);
+  const [showAddEbook, setShowAddEbook] = useState(false);
+  const [editingEbook, setEditingEbook] = useState<EbookProduct | null>(null);
+  const [ebookForm, setEbookForm] = useState({
+    name: "",
+    description: "",
+    price: "",
+    unit_count: "1",
+    file_url: "",
+    is_active: true,
+  });
+  const [savingEbook, setSavingEbook] = useState(false);
+
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -359,6 +382,55 @@ export default function AdminDashboardPage() {
     };
   }, [activeTab]);
 
+    // 👇 TAMBAHKAN USEEFFECT E-BOOKS DI SINI
+  // Load e-books when tab active
+  useEffect(() => {
+    if (activeTab === "ebooks") {
+      loadEbooks();
+    }
+  }, [activeTab]);
+
+  // Realtime subscription untuk products (e-books)
+  useEffect(() => {
+    if (activeTab !== "ebooks") return;
+
+    const channel = supabase
+      .channel("products-changes")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "products",
+          filter: "product_type=eq.ebook",
+        },
+        (payload) => {
+          console.log("🔔 E-book product changed:", payload);
+          
+          if (payload.eventType === "INSERT") {
+            const newProduct = payload.new as EbookProduct;
+            setEbookProducts((prev) => [newProduct, ...prev]);
+            showToast("E-book baru ditambahkan!", "success");
+          } else if (payload.eventType === "UPDATE") {
+            const updatedProduct = payload.new as EbookProduct;
+            setEbookProducts((prev) =>
+              prev.map((p) => (p.id === updatedProduct.id ? updatedProduct : p))
+            );
+          } else if (payload.eventType === "DELETE") {
+            const deletedId = payload.old.id;
+            setEbookProducts((prev) => prev.filter((p) => p.id !== deletedId));
+          }
+          
+          setLastUpdate(new Date());
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [activeTab]);
+  
   // ===== ORDER ACTIONS =====
   async function markPaid(orderId: string) {
     setProcessingId(orderId);
@@ -532,7 +604,147 @@ export default function AdminDashboardPage() {
     });
   }
 
-  // Copy to clipboard
+  async function loadEbooks(silent = false) {
+  const { data, error } = await supabase
+    .from("products")
+    .select("*")
+    .eq("product_type", "ebook")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("Load ebooks error:", error);
+    if (!silent) showToast("Gagal memuat e-book", "error");
+  } else if (data) {
+    setEbookProducts(data as EbookProduct[]);
+    setLastUpdate(new Date());
+  }
+}
+
+// Reset form
+const resetEbookForm = () => {
+  setEbookForm({
+    name: "",
+    description: "",
+    price: "",
+    unit_count: "1",
+    file_url: "",
+    is_active: true,
+  });
+  setEditingEbook(null);
+};
+
+// Edit handler
+const handleEditEbook = (ebook: EbookProduct) => {
+  setEditingEbook(ebook);
+  setEbookForm({
+    name: ebook.name,
+    description: ebook.description || "",
+    price: ebook.price.toString(),
+    unit_count: ebook.unit_count.toString(),
+    file_url: ebook.file_url || "",
+    is_active: ebook.is_active,
+  });
+  setShowAddEbook(true);
+};
+
+// Save handler
+const handleSaveEbook = async () => {
+  if (!ebookForm.name.trim()) {
+    showToast("Nama e-book wajib diisi", "error");
+    return;
+  }
+  if (!ebookForm.price || parseFloat(ebookForm.price) <= 0) {
+    showToast("Harga harus lebih dari 0", "error");
+    return;
+  }
+  if (!ebookForm.unit_count || parseInt(ebookForm.unit_count) <= 0) {
+    showToast("Jumlah unit harus lebih dari 0", "error");
+    return;
+  }
+
+  setSavingEbook(true);
+
+  try {
+    const payload = {
+      name: ebookForm.name.trim(),
+      description: ebookForm.description.trim() || null,
+      price: parseFloat(ebookForm.price),
+      unit_count: parseInt(ebookForm.unit_count),
+      file_url: ebookForm.file_url.trim() || null,
+      is_active: ebookForm.is_active,
+      product_type: "ebook",
+    };
+
+    if (editingEbook) {
+      const { error } = await supabase
+        .from("products")
+        .update(payload)
+        .eq("id", editingEbook.id);
+
+      if (error) {
+        showToast("Gagal update e-book: " + error.message, "error");
+      } else {
+        showToast("E-book berhasil diupdate! ✨", "success");
+        setShowAddEbook(false);
+        resetEbookForm();
+      }
+    } else {
+      const { error } = await supabase
+        .from("products")
+        .insert([payload]);
+
+      if (error) {
+        showToast("Gagal menambahkan e-book: " + error.message, "error");
+      } else {
+        showToast("E-book berhasil ditambahkan! 🎉", "success");
+        setShowAddEbook(false);
+        resetEbookForm();
+      }
+    }
+  } catch (err: any) {
+    showToast("Error: " + err.message, "error");
+  } finally {
+    setSavingEbook(false);
+  }
+};
+
+// Delete handler
+const handleDeleteEbook = (ebook: EbookProduct) => {
+  setConfirmModal({
+    title: "Hapus E-book?",
+    message: `E-book "${ebook.name}" akan dihapus permanen. Yakin ingin melanjutkan?`,
+    type: "danger",
+    onConfirm: async () => {
+      const { error } = await supabase
+        .from("products")
+        .delete()
+        .eq("id", ebook.id);
+
+      if (error) {
+        showToast("Gagal menghapus e-book: " + error.message, "error");
+      } else {
+        showToast("E-book berhasil dihapus!", "success");
+      }
+    },
+  });
+};
+
+// Toggle status
+const toggleEbookStatus = async (ebook: EbookProduct) => {
+  const { error } = await supabase
+    .from("products")
+    .update({ is_active: !ebook.is_active })
+    .eq("id", ebook.id);
+
+  if (error) {
+    showToast("Gagal mengubah status: " + error.message, "error");
+  } else {
+    showToast(
+      `E-book ${!ebook.is_active ? "diaktifkan" : "dinonaktifkan"}!`,
+      "success"
+    );
+  }
+};
   const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
     setCopiedId(id);
@@ -797,6 +1009,22 @@ export default function AdminDashboardPage() {
               <span className="sm:hidden">Stok</span>
               <span className="text-[10px] md:text-xs px-1.5 md:px-2 py-0.5 rounded-full bg-slate-950/30">
                 {availableStock}
+              </span>
+            </button>
+                        {/* 👇 TAMBAHKAN TAB BUTTON E-BOOKS DI SINI */}
+            <button
+              onClick={() => setActiveTab("ebooks")}
+              className={`flex-1 md:flex-none px-3 md:px-6 py-2 md:py-3 text-xs md:text-sm font-semibold rounded-lg md:rounded-xl transition-all flex items-center justify-center gap-1.5 md:gap-2 ${
+                activeTab === "ebooks"
+                  ? "bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/30"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+              }`}
+            >
+              <BookOpen className="w-3.5 h-3.5 md:w-4 md:h-4" />
+              <span className="hidden sm:inline">E-Books</span>
+              <span className="sm:hidden">E-Book</span>
+              <span className="text-[10px] md:text-xs px-1.5 md:px-2 py-0.5 rounded-full bg-slate-950/30">
+                {ebookProducts.length}
               </span>
             </button>
             <button
@@ -1243,6 +1471,162 @@ export default function AdminDashboardPage() {
           </section>
         )}
 
+                {/* 👇 TAMBAHKAN TAB CONTENT E-BOOKS DI SINI */}
+        {/* Tab Content: E-books */}
+        {activeTab === "ebooks" && (
+          <section className="space-y-4 md:space-y-5">
+            <div className="border border-slate-800 bg-slate-900/80 rounded-xl md:rounded-2xl p-4 md:p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 md:gap-5 shadow-xl">
+              <div>
+                <h2 className="text-lg md:text-2xl font-bold flex items-center gap-2 md:gap-3">
+                  <BookOpen className="w-5 h-5 md:w-6 md:h-6 text-purple-400" />
+                  Produk E-Book
+                </h2>
+                <p className="text-xs md:text-sm text-slate-400 mt-1.5 md:mt-2 flex items-center gap-1.5 md:gap-2">
+                  <CheckCircle2 className="w-3.5 h-3.5 md:w-4 md:h-4 text-purple-400" />
+                  {ebookProducts.filter(p => p.is_active).length} aktif · {ebookProducts.filter(p => !p.is_active).length} nonaktif
+                </p>
+                <p className="text-[10px] md:text-xs text-slate-500 mt-1.5 md:mt-2 hidden md:block">
+                  Kelola koleksi e-book premium untuk dijual
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  resetEbookForm();
+                  setShowAddEbook(true);
+                }}
+                className="w-full md:w-auto inline-flex items-center justify-center gap-1.5 md:gap-2 px-4 md:px-6 py-2.5 md:py-3 rounded-lg md:rounded-xl bg-purple-500 hover:bg-purple-600 text-xs md:text-sm font-bold transition-all shadow-lg shadow-purple-500/30"
+              >
+                <Plus className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                Tambah E-book
+              </button>
+            </div>
+
+            <div className="border border-slate-800 bg-slate-900 rounded-xl md:rounded-2xl overflow-hidden shadow-2xl">
+              <div className="bg-slate-950/80 border-b border-slate-800 px-4 md:px-6 py-3 md:py-4 flex items-center justify-between">
+                <h3 className="font-bold text-base md:text-lg">Daftar E-Book</h3>
+                <span className="text-[10px] md:text-xs text-slate-400 flex items-center gap-1.5 md:gap-2">
+                  <BookOpen className="w-3 h-3 md:w-3.5 md:h-3.5" />
+                  {ebookProducts.length} produk
+                </span>
+              </div>
+
+              <div className="divide-y divide-slate-800 max-h-[600px] overflow-y-auto">
+                {ebookProducts.length === 0 ? (
+                  <div className="text-center py-12 md:py-16 space-y-3 md:space-y-4 px-4">
+                    <div className="w-16 h-16 md:w-20 md:h-20 mx-auto rounded-xl md:rounded-2xl bg-slate-800/50 flex items-center justify-center">
+                      <BookOpen className="w-8 h-8 md:w-10 md:h-10 text-slate-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm md:text-base font-semibold text-slate-300">
+                        Belum ada produk e-book
+                      </p>
+                      <p className="text-xs md:text-sm text-slate-500 mt-2">
+                        Klik "Tambah E-book" untuk membuat produk baru
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  ebookProducts.map((ebook) => (
+                    <div
+                      key={ebook.id}
+                      className="p-4 md:p-5 hover:bg-slate-950/60 transition-all"
+                    >
+                      <div className="flex items-start gap-3 md:gap-4">
+                        {/* Icon */}
+                        <div className="shrink-0 w-12 h-12 md:w-14 md:h-14 rounded-lg md:rounded-xl bg-purple-500/10 border border-purple-500/30 flex items-center justify-center">
+                          <BookOpen className="w-6 h-6 md:w-7 md:h-7 text-purple-400" />
+                        </div>
+
+                        {/* Content */}
+                        <div className="flex-1 min-w-0 space-y-2 md:space-y-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                              <h4 className="text-sm md:text-base font-bold text-slate-100 truncate">
+                                {ebook.name}
+                              </h4>
+                              {ebook.description && (
+                                <p className="text-xs md:text-sm text-slate-400 mt-1 line-clamp-2">
+                                  {ebook.description}
+                                </p>
+                              )}
+                            </div>
+                            <button
+                              onClick={() => toggleEbookStatus(ebook)}
+                              className={`shrink-0 px-2 md:px-3 py-1 md:py-1.5 text-[10px] md:text-xs font-bold rounded-full transition-all ${
+                                ebook.is_active
+                                  ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30"
+                                  : "bg-slate-700 text-slate-400 border border-slate-600 hover:bg-slate-600"
+                              }`}
+                            >
+                              {ebook.is_active ? "Aktif" : "Nonaktif"}
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-3 text-xs md:text-sm">
+                            <div className="flex items-center gap-1.5 md:gap-2 text-purple-400">
+                              <CircleDollarSign className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                              <span className="font-bold">
+                                Rp {ebook.price.toLocaleString("id-ID")}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5 md:gap-2 text-slate-400">
+                              <Package className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                              <span>{ebook.unit_count} unit</span>
+                            </div>
+                            {ebook.file_url ? (
+                              <div className="flex items-center gap-1.5 md:gap-2 text-emerald-400 col-span-2 md:col-span-1">
+                                <LinkIcon className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                                <a
+                                  href={ebook.file_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="hover:underline truncate"
+                                >
+                                  Link tersedia
+                                </a>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1.5 md:gap-2 text-red-400 col-span-2 md:col-span-1">
+                                <AlertCircle className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                                <span>Belum ada link</span>
+                              </div>
+                            )}
+                          </div>
+
+                          <p className="text-[10px] md:text-xs text-slate-500 flex items-center gap-1.5 md:gap-2">
+                            <Clock className="w-2.5 h-2.5 md:w-3 md:h-3" />
+                            Dibuat {new Date(ebook.created_at).toLocaleDateString("id-ID", {
+                              dateStyle: "medium",
+                            })}
+                          </p>
+
+                          {/* Actions */}
+                          <div className="flex items-center gap-2 md:gap-3 pt-2">
+                            <button
+                              onClick={() => handleEditEbook(ebook)}
+                              className="flex-1 md:flex-none inline-flex items-center justify-center gap-1.5 md:gap-2 px-3 md:px-4 py-2 md:py-2.5 text-xs md:text-sm font-medium border border-slate-700 rounded-lg md:rounded-xl hover:bg-slate-800 hover:border-slate-600 transition-all"
+                            >
+                              <Edit className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                              <span className="hidden sm:inline">Edit</span>
+                            </button>
+                            <button
+                              onClick={() => handleDeleteEbook(ebook)}
+                              className="flex-1 md:flex-none inline-flex items-center justify-center gap-1.5 md:gap-2 px-3 md:px-4 py-2 md:py-2.5 text-xs md:text-sm font-bold text-red-400 hover:text-red-300 border border-red-900/50 rounded-lg md:rounded-xl hover:bg-red-950/30 transition-all"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                              <span className="hidden sm:inline">Hapus</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </section>
+        )}
+
         {/* Tab Content: Finance */}
         {activeTab === "finance" && (
           <section className="space-y-4 md:space-y-5">
@@ -1586,6 +1970,178 @@ export default function AdminDashboardPage() {
                   <>
                     <CheckCircle2 className="w-3.5 h-3.5 md:w-4 md:h-4" />
                     {bulkMode ? "Simpan Semua" : "Simpan Akun"}
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Add/Edit E-book */}
+      {showAddEbook && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-50 flex items-center justify-center p-3 md:p-4 animate-in fade-in duration-200 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl md:rounded-2xl max-w-2xl w-full shadow-2xl animate-in zoom-in duration-200 my-4">
+            {/* Modal Header */}
+            <div className="border-b border-slate-800 p-4 md:p-6 flex items-center justify-between">
+              <div>
+                <h3 className="text-lg md:text-2xl font-bold flex items-center gap-2">
+                  <BookOpen className="w-5 h-5 md:w-6 md:h-6 text-purple-400" />
+                  {editingEbook ? "Edit E-book" : "Tambah E-book Baru"}
+                </h3>
+                <p className="text-xs md:text-sm text-slate-400 mt-1.5 md:mt-2">
+                  {editingEbook ? "Update informasi e-book" : "Tambahkan e-book premium ke katalog"}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowAddEbook(false);
+                  resetEbookForm();
+                }}
+                className="p-2 md:p-2.5 hover:bg-slate-800 rounded-lg md:rounded-xl transition-all"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 md:p-6 space-y-4 md:space-y-5 max-h-[60vh] overflow-y-auto">
+              {/* Nama E-book */}
+              <div>
+                <label className="text-xs md:text-sm font-bold text-slate-300 block mb-2 md:mb-2.5">
+                  Nama E-book <span className="text-red-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={ebookForm.name}
+                  onChange={(e) => setEbookForm({ ...ebookForm, name: e.target.value })}
+                  placeholder="Contoh: Panduan Instagram Marketing 2024"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg md:rounded-xl px-3 md:px-4 py-2.5 md:py-3.5 text-xs md:text-sm focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 transition-all"
+                />
+              </div>
+
+              {/* Deskripsi */}
+              <div>
+                <label className="text-xs md:text-sm font-bold text-slate-300 block mb-2 md:mb-2.5">
+                  Deskripsi
+                </label>
+                <textarea
+                  value={ebookForm.description}
+                  onChange={(e) => setEbookForm({ ...ebookForm, description: e.target.value })}
+                  placeholder="Deskripsikan konten e-book secara singkat..."
+                  rows={3}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg md:rounded-xl px-3 md:px-4 py-2.5 md:py-3 text-xs md:text-sm focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 transition-all resize-none"
+                />
+              </div>
+
+              {/* Harga & Unit Count */}
+              <div className="grid grid-cols-2 gap-3 md:gap-4">
+                <div>
+                  <label className="text-xs md:text-sm font-bold text-slate-300 block mb-2 md:mb-2.5">
+                    Harga (Rp) <span className="text-red-400">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={ebookForm.price}
+                    onChange={(e) => setEbookForm({ ...ebookForm, price: e.target.value })}
+                    placeholder="50000"
+                    min="0"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg md:rounded-xl px-3 md:px-4 py-2.5 md:py-3.5 text-xs md:text-sm focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs md:text-sm font-bold text-slate-300 block mb-2 md:mb-2.5">
+                    Jumlah Unit <span className="text-red-400">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={ebookForm.unit_count}
+                    onChange={(e) => setEbookForm({ ...ebookForm, unit_count: e.target.value })}
+                    placeholder="1"
+                    min="1"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg md:rounded-xl px-3 md:px-4 py-2.5 md:py-3.5 text-xs md:text-sm focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 transition-all"
+                  />
+                  <p className="text-[10px] md:text-xs text-slate-500 mt-1.5">
+                    Untuk bundle e-book
+                  </p>
+                </div>
+              </div>
+
+              {/* File URL */}
+              <div>
+                <label className="text-xs md:text-sm font-bold text-slate-300 block mb-2 md:mb-2.5 flex items-center gap-2">
+                  <LinkIcon className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                  Link Google Drive
+                </label>
+                <input
+                  type="url"
+                  value={ebookForm.file_url}
+                  onChange={(e) => setEbookForm({ ...ebookForm, file_url: e.target.value })}
+                  placeholder="https://drive.google.com/file/d/xxx/view?usp=sharing"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg md:rounded-xl px-3 md:px-4 py-2.5 md:py-3.5 text-xs md:text-sm focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 transition-all"
+                />
+                <p className="text-[10px] md:text-xs text-slate-500 mt-1.5">
+                  Link download akan dikirim ke customer via WhatsApp
+                </p>
+              </div>
+
+              {/* Status Aktif */}
+              <div className="flex items-center gap-3 p-3 md:p-4 bg-slate-950/60 rounded-lg md:rounded-xl border border-slate-800">
+                <input
+                  type="checkbox"
+                  id="ebook-active"
+                  checked={ebookForm.is_active}
+                  onChange={(e) => setEbookForm({ ...ebookForm, is_active: e.target.checked })}
+                  className="w-4 h-4 md:w-5 md:h-5 rounded border-slate-600 bg-slate-900 cursor-pointer"
+                />
+                <label htmlFor="ebook-active" className="text-xs md:text-sm font-medium text-slate-300 cursor-pointer flex-1">
+                  Aktifkan produk (tampil di halaman customer)
+                </label>
+              </div>
+
+              {/* Info */}
+              <div className="bg-blue-950/30 border border-blue-900/50 rounded-lg md:rounded-xl p-3 md:p-4 flex items-start gap-2 md:gap-3">
+                <AlertCircle className="w-4 h-4 md:w-5 md:h-5 text-blue-400 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-xs md:text-sm font-semibold text-blue-300 mb-1">
+                    Tips
+                  </p>
+                  <ul className="text-[10px] md:text-xs text-blue-300/80 space-y-1">
+                    <li>• Pastikan link Google Drive sudah di-set ke "Anyone with the link"</li>
+                    <li>• Gunakan deskripsi yang menarik untuk meningkatkan konversi</li>
+                    <li>• Unit count untuk bundle (misal: 3 e-book dalam 1 paket)</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="border-t border-slate-800 p-4 md:p-6 flex items-center justify-end gap-2 md:gap-3">
+              <button
+                onClick={() => {
+                  setShowAddEbook(false);
+                  resetEbookForm();
+                }}
+                disabled={savingEbook}
+                className="px-4 md:px-6 py-2 md:py-2.5 rounded-lg md:rounded-xl border border-slate-700 hover:bg-slate-800 text-xs md:text-sm font-medium transition-all disabled:opacity-50"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleSaveEbook}
+                disabled={savingEbook || !ebookForm.name.trim() || !ebookForm.price}
+                className="inline-flex items-center gap-1.5 md:gap-2 px-5 md:px-8 py-2 md:py-2.5 rounded-lg md:rounded-xl bg-purple-500 hover:bg-purple-600 text-xs md:text-sm font-bold disabled:bg-slate-700 disabled:cursor-not-allowed transition-all shadow-lg shadow-purple-500/30"
+              >
+                {savingEbook ? (
+                  <>
+                    <div className="h-3.5 w-3.5 md:h-4 md:w-4 animate-spin rounded-full border-2 border-slate-900 border-t-slate-50" />
+                    <span className="hidden md:inline">Menyimpan...</span>
+                    <span className="md:hidden">...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                    {editingEbook ? "Update E-book" : "Simpan E-book"}
                   </>
                 )}
               </button>

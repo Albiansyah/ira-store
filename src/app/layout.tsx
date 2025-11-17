@@ -4,6 +4,7 @@ import { Inter, Poppins } from "next/font/google";
 
 import { CartProvider } from "../context/CartContext";
 import Header from "../components/Header"; 
+import Footer from "../components/Footer"; // ← Tambah ini
 
 const inter = Inter({
   subsets: ["latin"],
@@ -17,7 +18,7 @@ const poppins = Poppins({
 });
 
 export const metadata: Metadata = {
-  title: "IRA STORE - Jual Akun Gmail & Digital Access",
+  title: "IRA STORE - Digital E-Commerce Top #1",
   description: "Jual akun Gmail & digital access, kirim otomatis via WhatsApp",
   icons: {
     icon: '/logo.png',
@@ -33,27 +34,18 @@ export default function RootLayout({
 }) {
   return (
     <html
-      lang="id" // Ganti ke 'id' agar lebih konsisten
+      lang="id" 
       className={`${inter.variable} ${poppins.variable}`}
       suppressHydrationWarning
     >
       <body className="min-h-screen bg-slate-950 text-slate-50 antialiased font-sans">
-        {/* Bungkus semua dengan CartProvider.
-          Ini "otak" yang menyediakan data keranjang ke semua halaman.
-        */}
         <CartProvider>
           <div className="min-h-screen flex flex-col">
-            {/* Tampilkan komponen Header baru di sini.
-              Header ini akan otomatis punya akses ke `useCart()`
-              untuk menampilkan badge.
-            */}
             <Header />
 
-            {/* Header statis yang LAMA (yang ada di file Anda) sudah DIHAPUS 
-              karena digantikan oleh <Header /> di atas.
-            */}
-
             <div className="flex-1">{children}</div>
+
+            <Footer /> {/* ← Tambah ini */}
           </div>
         </CartProvider>
       </body>
