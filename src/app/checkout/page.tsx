@@ -22,7 +22,7 @@ export default function CheckoutPage() {
   const [error, setError] = useState<string | null>(null);
   const [phoneError, setPhoneError] = useState<string | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
-  const [step, setStep] = useState<1 | 2>(1); // Step 1: Contact Info, Step 2: Review Order
+  const [step, setStep] = useState<1 | 2>(1);
 
   const contactFormRef = useRef<HTMLDivElement>(null);
 
@@ -42,39 +42,32 @@ export default function CheckoutPage() {
       return;
     }
 
-    // Hapus semua karakter non-digit
     const cleanPhone = buyerPhone.replace(/\D/g, "");
 
-    // Cek apakah nomor terlalu pendek
     if (cleanPhone.length > 0 && cleanPhone.length < 10) {
       setPhoneError("Nomor WhatsApp terlalu pendek (minimal 10 digit)");
       return;
     }
 
-    // Cek format Indonesia
     if (cleanPhone.startsWith("62")) {
-      // Format: 62xxx (minimal 12 digit total)
       if (cleanPhone.length < 12) {
         setPhoneError("Nomor WhatsApp tidak valid. Format: 628123456789");
       } else {
         setPhoneError(null);
       }
     } else if (cleanPhone.startsWith("0")) {
-      // Format: 08xxx (minimal 11 digit)
       if (cleanPhone.length < 11) {
         setPhoneError("Nomor WhatsApp tidak valid. Format: 08123456789");
       } else {
         setPhoneError(null);
       }
     } else if (cleanPhone.startsWith("8")) {
-      // Format: 8xxx (minimal 10 digit)
       if (cleanPhone.length < 10) {
         setPhoneError("Nomor WhatsApp tidak valid. Format: 8123456789");
       } else {
         setPhoneError(null);
       }
     } else {
-      // Format tidak valid
       setPhoneError("Nomor WhatsApp harus diawali 08, +62, 62, atau 8");
     }
   }, [buyerPhone]);
@@ -91,26 +84,36 @@ export default function CheckoutPage() {
   };
 
   const handleManualQuantityChange = (productId: string, value: string) => {
-    const newQuantity = parseInt(value);
-    if (isNaN(newQuantity) || newQuantity < 1) {
-      const success = updateQuantity(productId, 1);
-      if (!success) alert("Stok tidak cukup.");
+    // Hapus karakter non-digit
+    const cleanValue = value.replace(/\D/g, "");
+    
+    if (cleanValue === "") {
+      // Jika kosong, set ke 1
+      updateQuantity(productId, 1);
       return;
     }
-    handleQuantityChange(productId, newQuantity);
+    
+    const newQuantity = parseInt(cleanValue);
+    
+    if (newQuantity < 1) {
+      updateQuantity(productId, 1);
+      return;
+    }
+    
+    const success = updateQuantity(productId, newQuantity);
+    if (!success) {
+      alert("Stok tidak cukup untuk jumlah yang diinginkan.");
+    }
   };
 
-  // Handle step 1 -> step 2
   const handleContinueToReview = () => {
     setError(null);
 
-    // Validasi email
     if (!buyerEmail || !buyerEmail.includes("@")) {
       setError("Masukkan alamat email yang valid");
       return;
     }
 
-    // Validasi nomor WA
     if (!buyerPhone) {
       setError("Masukkan nomor WhatsApp Anda");
       return;
@@ -121,7 +124,6 @@ export default function CheckoutPage() {
       return;
     }
 
-    // Lanjut ke step 2
     setStep(2);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -130,13 +132,11 @@ export default function CheckoutPage() {
     e.preventDefault();
     setError(null);
 
-    // Validasi keranjang
     if (cart.length === 0) {
       setError("Keranjang kosong. Silakan pilih produk terlebih dahulu.");
       return;
     }
     
-    // Validasi stok
     if (stockAvailable !== null && totalUnitsInCart > stockAvailable) {
       setError("Stok tidak cukup untuk jumlah pesanan Anda. Harap kurangi item di keranjang.");
       return;
@@ -392,27 +392,40 @@ export default function CheckoutPage() {
                           {item.unitCount} akun × {item.quantity} paket
                         </p>
                         
-                        <div className="flex items-center gap-2 mt-2">
+                        {/* Quantity Control - IMPROVED WITH MANUAL INPUT */}
+                        <div className="flex items-center gap-2 mt-3">
                           <button
                             onClick={() => handleQuantityChange(item.productId, item.quantity - 1)}
-                            className="w-7 h-7 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors text-sm"
+                            className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors flex items-center justify-center"
                           >
-                            -
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M20 12H4" />
+                            </svg>
                           </button>
-                          <span className="w-10 text-center text-sm font-medium">
-                            {item.quantity}
-                          </span>
+                          
+                          {/* Manual Input Field */}
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={item.quantity}
+                            onChange={(e) => handleManualQuantityChange(item.productId, e.target.value)}
+                            onFocus={(e) => e.target.select()}
+                            className="w-16 h-8 text-center bg-slate-900 border border-slate-700 rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50"
+                          />
+                          
                           <button
                             onClick={() => handleQuantityChange(item.productId, item.quantity + 1)}
-                            className="w-7 h-7 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors text-sm"
+                            className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors flex items-center justify-center"
                           >
-                            +
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+                            </svg>
                           </button>
                           
                           <button
                             onClick={() => removeFromCart(item.productId)}
                             className="text-slate-500 hover:text-red-400 transition-colors p-1.5 ml-auto"
-                            title="Hapus"
+                            title="Hapus dari keranjang"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
