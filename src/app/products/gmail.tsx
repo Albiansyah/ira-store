@@ -215,7 +215,7 @@ export default function GmailProducts({ onBack }: GmailProductsProps) {
                     disabled
                       ? "bg-slate-950/60 opacity-50 border-slate-800"
                       : isPopular
-                      ? "bg-gradient-to-br from-emerald-950/40 to-slate-900 border-emerald-500/30 hover:border-emerald-500/50 hover:shadow-xl hover:shadow-emerald-500/10"
+                      ? "bg-linear-to-br from-emerald-950/40 to-slate-900 border-emerald-500/30 hover:border-emerald-500/50 hover:shadow-xl hover:shadow-emerald-500/10"
                       : "bg-slate-900 border-slate-800 hover:border-slate-700 hover:shadow-lg hover:shadow-emerald-500/5"
                   }`}
                 >

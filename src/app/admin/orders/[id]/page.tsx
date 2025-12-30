@@ -490,8 +490,8 @@ export default function AdminOrderDetailPage() {
           </div>
         ) : (
           <>
-            <div className="relative overflow-hidden rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900/50 to-slate-900/30 backdrop-blur-sm">
-              <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 via-transparent to-blue-500/5" />
+            <div className="relative overflow-hidden rounded-2xl border border-slate-800 bg-linear-to-br from-slate-900/50 to-slate-900/30 backdrop-blur-sm">
+              <div className="absolute inset-0 bg-linear-to-br from-emerald-500/5 via-transparent to-blue-500/5" />
               
               <div className="relative p-6 space-y-6">
                 <div className="flex items-start justify-between gap-4">

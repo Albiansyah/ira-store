@@ -1,4 +1,3 @@
-// src/contexts/CartContext.tsx
 "use client";
 
 import {
@@ -19,6 +18,7 @@ export interface CartItem {
   unitCount: number;
   price: number;
   quantity: number;
+  productType: string; // Tambahkan ini untuk tracking tipe produk di cart
 }
 
 interface CartContextType {
@@ -45,7 +45,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [stockAvailable, setStockAvailable] = useState<number | null>(null);
   const [isCartLoading, setIsCartLoading] = useState(true);
 
-  // Function untuk load stock dari Supabase
+  // Function untuk load stock dari Supabase (Hanya relevan untuk akun Gmail)
   const loadStock = useCallback(async () => {
     try {
       const { data, error } = await supabase
@@ -101,9 +101,15 @@ export function CartProvider({ children }: { children: ReactNode }) {
     }
   }, [cart, isCartLoading]);
 
-  // Hitung total units di cart
+  // Hitung total units di cart (Hanya menghitung unit untuk produk tipe GMAIL)
   const totalUnitsInCart = useMemo(
-    () => cart.reduce((sum, item) => sum + item.unitCount * item.quantity, 0),
+    () => cart.reduce((sum, item) => {
+      // Hanya produk gmail yang memakan stok akun
+      if (item.productType === 'gmail') {
+        return sum + item.unitCount * item.quantity;
+      }
+      return sum;
+    }, 0),
     [cart]
   );
 
@@ -121,16 +127,27 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   // Tambah produk ke cart
   const addToCart = useCallback((product: ProductRow): boolean => {
-    const existing = cart.find((c) => c.productId === product.id);
-    const unitsInCartExcludingThis =
-      totalUnitsInCart - (existing ? existing.unitCount * existing.quantity : 0);
-    const newQuantity = existing ? existing.quantity + 1 : 1;
-    const newTotalUnits = unitsInCartExcludingThis + product.unit_count * newQuantity;
+    // Cek apakah produk ini butuh validasi stok (hanya gmail)
+    const isStockLimited = product.product_type === 'gmail';
 
-    // Validasi stock
-    if (stockAvailable !== null && newTotalUnits > stockAvailable) {
-      return false;
+    const existing = cart.find((c) => c.productId === product.id);
+    
+    // Hitung estimasi unit jika ditambah
+    let newTotalUnitsOfGmail = totalUnitsInCart;
+    if (isStockLimited) {
+       // Jika produk ini gmail, kita hitung apakah stok cukup
+       const currentGmailUnits = existing ? existing.unitCount * existing.quantity : 0;
+       const unitsExcludingThis = totalUnitsInCart - currentGmailUnits;
+       const newQuantity = existing ? existing.quantity + 1 : 1;
+       newTotalUnitsOfGmail = unitsExcludingThis + (product.unit_count * newQuantity);
+
+       // Validasi stock HANYA jika produk gmail
+       if (stockAvailable !== null && newTotalUnitsOfGmail > stockAvailable) {
+         return false; // Stok habis/kurang
+       }
     }
+
+    const newQuantity = existing ? existing.quantity + 1 : 1;
 
     setCart((prev) => {
       if (existing) {
@@ -146,6 +163,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
           unitCount: product.unit_count,
           price: product.price,
           quantity: 1,
+          productType: product.product_type // Simpan tipe produk
         },
       ];
     });
@@ -154,8 +172,10 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   // Buy now - langsung clear cart dan isi dengan 1 produk ini
   const buyNow = useCallback((product: ProductRow): boolean => {
-    // Validasi stock
-    if (stockAvailable !== null && product.unit_count > stockAvailable) {
+    const isStockLimited = product.product_type === 'gmail';
+
+    // Validasi stock HANYA jika produk gmail
+    if (isStockLimited && stockAvailable !== null && product.unit_count > stockAvailable) {
       return false;
     }
 
@@ -165,6 +185,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       unitCount: product.unit_count,
       price: product.price,
       quantity: 1,
+      productType: product.product_type
     };
     setCart([newItem]);
     return true;
@@ -183,13 +204,14 @@ export function CartProvider({ children }: { children: ReactNode }) {
     const item = cart.find((c) => c.productId === productId);
     if (!item) return false;
 
-    const unitsInCartExcludingThis =
-      totalUnitsInCart - item.unitCount * item.quantity;
-    const newTotalUnits = unitsInCartExcludingThis + item.unitCount * newQuantity;
+    // Cek limitasi stok hanya jika item adalah gmail
+    if (item.productType === 'gmail') {
+      const unitsInCartExcludingThis = totalUnitsInCart - (item.unitCount * item.quantity);
+      const newTotalUnits = unitsInCartExcludingThis + (item.unitCount * newQuantity);
 
-    // Validasi stock
-    if (stockAvailable !== null && newTotalUnits > stockAvailable) {
-      return false;
+      if (stockAvailable !== null && newTotalUnits > stockAvailable) {
+        return false;
+      }
     }
 
     setCart((prev) =>

@@ -123,7 +123,7 @@ export default function HomePage() {
             <div className="absolute -inset-4 rounded-3xl bg-emerald-500/10 blur-3xl opacity-50" />
             <div className="relative border border-slate-800 bg-slate-900/90 backdrop-blur rounded-2xl p-6 md:p-8 space-y-6 shadow-2xl">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/40 flex items-center justify-center flex-shrink-0">
+                <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/40 flex items-center justify-center shrink-0">
                   <svg className="w-6 h-6 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                   </svg>
@@ -169,9 +169,9 @@ export default function HomePage() {
               <div className="flex items-center justify-between pt-4 border-t border-slate-800">
                 <div className="flex items-center gap-2">
                   <div className="flex -space-x-2">
-                    <div className="w-6 h-6 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 border-2 border-slate-900" />
-                    <div className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 border-2 border-slate-900" />
-                    <div className="w-6 h-6 rounded-full bg-gradient-to-br from-purple-400 to-purple-600 border-2 border-slate-900" />
+                    <div className="w-6 h-6 rounded-full bg-linear-to-br from-emerald-400 to-emerald-600 border-2 border-slate-900" />
+                    <div className="w-6 h-6 rounded-full bg-linear-to-br from-blue-400 to-blue-600 border-2 border-slate-900" />
+                    <div className="w-6 h-6 rounded-full bg-linear-to-br from-purple-400 to-purple-600 border-2 border-slate-900" />
                   </div>
                   <span className="text-xs text-slate-400 font-inter">47 orang beli hari ini</span>
                 </div>
@@ -191,7 +191,9 @@ export default function HomePage() {
           </div>
           
           <div className="relative">
-            <div className="hidden md:block absolute top-6 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-emerald-500/40 to-transparent" style={{width: 'calc(100% - 12rem)', left: '6rem'}} />
+            <div className="hidden md:block absolute top-6 left-0 right-0 h-0.5 
+            
+            from-transparent via-emerald-500/40 to-transparent" style={{width: 'calc(100% - 12rem)', left: '6rem'}} />
             
             <div className="grid md:grid-cols-3 gap-8 md:gap-6 lg:gap-8 relative">
               <div className="space-y-4 text-center">
@@ -248,7 +250,7 @@ export default function HomePage() {
           <div className="grid md:grid-cols-3 gap-6">
             <div className="border border-slate-800 bg-slate-900/50 rounded-xl p-6 space-y-4">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white font-bold">
+                <div className="w-12 h-12 rounded-full bg-linear-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white font-bold">
                   A
                 </div>
                 <div>
@@ -269,7 +271,7 @@ export default function HomePage() {
 
             <div className="border border-slate-800 bg-slate-900/50 rounded-xl p-6 space-y-4">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-400 to-purple-600 flex items-center justify-center text-white font-bold">
+                <div className="w-12 h-12 rounded-full bg-linear-to-br from-purple-400 to-purple-600 flex items-center justify-center text-white font-bold">
                   S
                 </div>
                 <div>
@@ -290,7 +292,7 @@ export default function HomePage() {
 
             <div className="border border-slate-800 bg-slate-900/50 rounded-xl p-6 space-y-4">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white font-bold">
+                <div className="w-12 h-12 rounded-full bg-linear-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white font-bold">
                   B
                 </div>
                 <div>
@@ -313,7 +315,7 @@ export default function HomePage() {
 
         <section className="max-w-4xl mx-auto mt-24 md:mt-32">
           <div className="relative">
-            <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-emerald-500/10 to-blue-500/10 blur-2xl opacity-50" />
+            <div className="absolute inset-0 rounded-2xl bg-linear-to-br from-emerald-500/10 to-blue-500/10 blur-2xl opacity-50" />
             <div className="relative border border-slate-800 bg-slate-900/80 backdrop-blur rounded-2xl p-8 md:p-12 text-center">
               <h2 className="text-2xl md:text-3xl font-bold mb-4 font-poppins">
                 Siap Mulai Belanja?
@@ -377,7 +379,7 @@ export default function HomePage() {
                 >
                   <span className="font-semibold text-slate-200 font-poppins pr-4">{faq.question}</span>
                   <svg
-                    className={`w-5 h-5 text-emerald-400 flex-shrink-0 transition-transform ${openFaq === index ? 'rotate-180' : ''}`}
+                    className={`w-5 h-5 text-emerald-400 shrink-0 transition-transform ${openFaq === index ? 'rotate-180' : ''}`}
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"

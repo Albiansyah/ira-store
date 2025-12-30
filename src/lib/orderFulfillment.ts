@@ -1,7 +1,17 @@
 // src/lib/orderFulfillment.ts
 
-import { supabase } from "./supabaseClient";
+import { createClient } from "@supabase/supabase-js";
 import { sendWhatsAppMessage } from "./fonnte";
+
+// --- INISIALISASI SUPABASE KHUSUS SERVER ---
+// Kita buat client langsung di sini untuk menghindari error import dari file 'use client'
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+// Gunakan SERVICE_ROLE_KEY jika ada (untuk akses admin bypass RLS), 
+// jika tidak ada gunakan ANON_KEY (seperti client biasa)
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+const supabase = createClient(supabaseUrl, supabaseKey);
+// -------------------------------------------
 
 interface PaymentInfo {
   amount?: number;
@@ -58,10 +68,12 @@ export async function fulfillOrderAndSendWhatsApp(
     console.log(`[Fulfillment] Found ${items.length} items in order`);
 
     // 3. Pisahkan berdasarkan product type
+    // Note: Pastikan type definition sesuai atau gunakan any sementara
     const gmailItems = items.filter((item: any) => item.products.product_type === "gmail");
     const ebookItems = items.filter((item: any) => item.products.product_type === "ebook");
+    const templateItems = items.filter((item: any) => item.products.product_type === "template"); // Tambahan untuk Template
 
-    console.log(`[Fulfillment] Gmail items: ${gmailItems.length}, E-book items: ${ebookItems.length}`);
+    console.log(`[Fulfillment] Items: Gmail=${gmailItems.length}, Ebook=${ebookItems.length}, Template=${templateItems.length}`);
 
     let message = `*✅ KONFIRMASI PEMBAYARAN*\n`;
     message += `Pembayaran Anda telah berhasil diverifikasi.\n\n`;
@@ -184,10 +196,8 @@ export async function fulfillOrderAndSendWhatsApp(
         
         if (product.file_url) {
           message += `🔗 Download: ${product.file_url}\n`;
-          console.log(`[Fulfillment] E-book ${product.name} - file URL included`);
         } else {
           message += `⚠️ Link download akan dikirim segera via email\n`;
-          console.warn(`[Fulfillment] E-book ${product.name} - missing file_url`);
         }
         message += `\n`;
       }
@@ -196,17 +206,47 @@ export async function fulfillOrderAndSendWhatsApp(
       message += `💡 *Info E-book*\n\n`;
       message += `  ✓ Format PDF Berkualitas HD\n`;
       message += `  ✓ Akses Selamanya\n`;
-      message += `  ✓ Bisa Download Kapan Saja\n`;
-      message += `  ✓ Update Gratis (Jika Ada)\n`;
       message += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
     }
 
-    // 6. Closing message
+    // 6. PROSES TEMPLATE ITEMS (jika ada)
+    if (templateItems.length > 0) {
+      console.log(`[Fulfillment] Processing ${templateItems.length} Template items...`);
+
+      message += `💻 *WORDPRESS TEMPLATES*\n\n`;
+      
+      for (const item of templateItems) {
+        const product = item.products as any;
+        const quantity = item.quantity;
+        
+        message += `📂 *${product.name}*`;
+        if (quantity > 1) {
+          message += ` (${quantity}x)\n`;
+        } else {
+          message += `\n`;
+        }
+        
+        if (product.file_url) {
+          message += `🔗 Download: ${product.file_url}\n`;
+        } else {
+          message += `⚠️ Link download akan dikirim segera via email\n`;
+        }
+        message += `\n`;
+      }
+      
+      message += `━━━━━━━━━━━━━━━━━━━━━\n`;
+      message += `💡 *Info Template*\n\n`;
+      message += `  ✓ File ZIP Siap Install\n`;
+      message += `  ✓ 100% Clean Files\n`;
+      message += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    }
+
+    // 7. Closing message
     message += `_Jika ada pertanyaan, jangan ragu untuk menghubungi kami._\n`;
     message += `Terima kasih atas kepercayaan Anda. 🙏\n\n`;
     message += `_Pesan otomatis - Mohon tidak membalas_`;
 
-    // 7. Kirim WhatsApp
+    // 8. Kirim WhatsApp
     const target = String(order.buyer_phone || "").trim();
     if (!target) {
       console.error("[Fulfillment] Nomor WhatsApp kosong di order:", orderId);
@@ -218,6 +258,8 @@ export async function fulfillOrderAndSendWhatsApp(
 
     if (!waResult.success) {
       console.error("[Fulfillment] Gagal kirim WA:", waResult.error, waResult.raw);
+      // Jangan return false dulu, yang penting status order terupdate jika perlu
+      // Atau return false jika WA wajib terkirim
       return {
         success: false,
         error: "Gagal mengirim WhatsApp ke pembeli",
@@ -226,7 +268,7 @@ export async function fulfillOrderAndSendWhatsApp(
 
     console.log(`[Fulfillment] WhatsApp sent successfully`);
 
-    // 8. Log WhatsApp ke database
+    // 9. Log WhatsApp ke database
     await supabase.from("whatsapp_logs").insert({
       order_id: orderId,
       to_number: target,
@@ -237,7 +279,7 @@ export async function fulfillOrderAndSendWhatsApp(
 
     console.log(`[Fulfillment] WhatsApp log saved`);
 
-    // 9. Update status order jadi completed
+    // 10. Update status order jadi completed
     const updatePayload: any = { status: "completed" };
     if (paymentInfo?.payment_method) {
       updatePayload.payment_reference = paymentInfo.payment_method;
@@ -250,8 +292,7 @@ export async function fulfillOrderAndSendWhatsApp(
 
     if (orderUpdateErr) {
       console.error("[Fulfillment] Gagal update status order:", orderUpdateErr);
-      // tapi WA sudah terkirim, jadi kita anggap success aja
-      return { success: true };
+      return { success: true }; // WA terkirim, anggap sukses meski DB update status gagal (edge case)
     }
 
     console.log(`[Fulfillment] ✅ Order ${orderId} completed successfully!`);

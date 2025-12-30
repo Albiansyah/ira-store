@@ -2,7 +2,7 @@
 
 export type OrderStatus = "pending" | "paid" | "completed" | "cancelled";
 
-export type ProductType = "gmail" | "ebook" | "app"; 
+export type ProductType = "gmail" | "ebook" | "app" | "template";
 
 export interface CartItemInput {
   productId: string;
@@ -15,6 +15,8 @@ export interface ProductRow {
   slug?: string; 
   description?: string; 
   price: number;
+  discount_price?: number | null;
+  discount_percentage?: number | null;
   unit_count: number;
   is_active: boolean;
   product_type: ProductType; 

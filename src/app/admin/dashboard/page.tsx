@@ -21,6 +21,10 @@ import {
   AlertCircle,
   TrendingUp,
   RefreshCw,
+  LayoutTemplate,
+  Lock,
+  Unlock,
+  Tag,
 } from "lucide-react";
 import { Inter, Poppins } from "next/font/google";
 import { BookOpen, Plus, Edit, Link as LinkIcon } from "lucide-react";
@@ -60,6 +64,8 @@ interface EbookProduct {
   name: string;
   description: string | null;
   price: number;
+  discount_price: number | null;
+  discount_percentage: number | null;
   unit_count: number;
   is_active: boolean;
   file_url: string | null;
@@ -146,7 +152,24 @@ function ConfirmModal({ isOpen, onClose, onConfirm, title, message, type = "dang
 
 export default function AdminDashboardPage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<"orders" | "stock" | "ebooks" | "finance">("orders");
+  const [activeTab, setActiveTab] = useState<"orders" | "stock" | "ebooks" | "emails" | "finance" | "templates">("orders");
+  const [maintenanceMode, setMaintenanceMode] = useState(false);
+  const [loadingMaintenance, setLoadingMaintenance] = useState(false);
+  const [templateProducts, setTemplateProducts] = useState<EbookProduct[]>([]);
+  const [showAddTemplate, setShowAddTemplate] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<EbookProduct | null>(null);
+  const defaultTemplateForm = {
+    name: "",
+    description: "",
+    price: "",
+    discount_price: "",
+    discount_percentage: "",
+    unit_count: "1",
+    file_url: "",
+    is_active: true,
+  };
+  const [templateForm, setTemplateForm] = useState(defaultTemplateForm);
+  const [savingTemplate, setSavingTemplate] = useState(false);
   const [orders, setOrders] = useState<OrderWithTotal[]>([]);
   const [stockAccounts, setStockAccounts] = useState<StockAccount[]>([]);
   const [ebookProducts, setEbookProducts] = useState<EbookProduct[]>([]);
@@ -161,7 +184,18 @@ export default function AdminDashboardPage() {
     is_active: true,
   });
   const [savingEbook, setSavingEbook] = useState(false);
-
+  const [emailProducts, setEmailProducts] = useState<EbookProduct[]>([]);
+  const [showAddEmail, setShowAddEmail] = useState(false);
+  const [editingEmail, setEditingEmail] = useState<EbookProduct | null>(null);
+  const [emailForm, setEmailForm] = useState({
+    name: "",
+    description: "",
+    price: "",
+    unit_count: "1",
+    file_url: "",
+    is_active: true,
+  });
+  const [savingEmail, setSavingEmail] = useState(false);
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -198,6 +232,83 @@ export default function AdminDashboardPage() {
     setToast({ message, type });
   };
 
+  // ===== LOGIC MAINTENANCE =====
+  async function loadMaintenanceStatus() {
+    const { data } = await supabase.from("app_settings").select("value").eq("key", "maintenance_mode").single();
+    if (data) setMaintenanceMode(data.value);
+  }
+
+  async function toggleMaintenance() {
+    setLoadingMaintenance(true);
+    const newValue = !maintenanceMode;
+    const { error } = await supabase.from("app_settings").upsert({ key: 'maintenance_mode', value: newValue });
+    
+    if (error) {
+      showToast("Gagal update maintenance", "error");
+    } else {
+      setMaintenanceMode(newValue);
+      showToast(newValue ? "⛔ Maintenance Mode AKTIF" : "✅ Maintenance Mode MATI", newValue ? "error" : "success");
+    }
+    setLoadingMaintenance(false);
+  }
+
+  // ===== LOGIC TEMPLATES =====
+  async function loadTemplates(silent = false) {
+    const { data, error } = await supabase
+      .from("products")
+      .select("*")
+      .eq("product_type", "template")
+      .order("created_at", { ascending: false });
+
+    if (error && !silent) showToast("Gagal load templates", "error");
+    else if (data) setTemplateProducts(data as EbookProduct[]);
+  }
+
+    const handleSaveTemplate = async () => {
+      if (!templateForm.name.trim() || !templateForm.price) { 
+        showToast("Nama & Harga wajib diisi", "error"); 
+        return; 
+      }
+      
+      // Validasi harga diskon
+      if (templateForm.discount_price && parseFloat(templateForm.discount_price) >= parseFloat(templateForm.price)) {
+        showToast("Harga diskon harus lebih kecil dari harga normal!", "error");
+        return;
+      }
+      
+      setSavingTemplate(true);
+      const payload = {
+        name: templateForm.name.trim(),
+        description: templateForm.description.trim() || null,
+        price: parseFloat(templateForm.price),
+        discount_price: templateForm.discount_price ? parseFloat(templateForm.discount_price) : null, // ← Tambahkan
+        discount_percentage: templateForm.discount_percentage ? parseInt(templateForm.discount_percentage) : null, // ← Tambahkan
+        unit_count: parseInt(templateForm.unit_count),
+        file_url: templateForm.file_url.trim() || null,
+        is_active: templateForm.is_active,
+        product_type: "template",
+      };
+
+      let error;
+      if (editingTemplate) {
+        const { error: err } = await supabase.from("products").update(payload).eq("id", editingTemplate.id);
+        error = err;
+      } else {
+        const { error: err } = await supabase.from("products").insert([payload]);
+        error = err;
+      }
+
+      if (error) showToast("Gagal: " + error.message, "error");
+      else {
+        showToast("Template berhasil disimpan!", "success");
+        setShowAddTemplate(false);
+        setTemplateForm({ name: "", description: "", price: "", discount_price: "", discount_percentage: "", unit_count: "1", file_url: "", is_active: true });
+        setEditingTemplate(null);
+        loadTemplates(true);
+      }
+      setSavingTemplate(false);
+    };
+
   // ===== AUTH CEK =====
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -206,6 +317,11 @@ export default function AdminDashboardPage() {
       router.push("/admin/login");
     }
   }, [router]);
+
+  // Load templates saat tab aktif
+  useEffect(() => {
+    if (activeTab === "templates") loadTemplates();
+  }, [activeTab]);
 
   // ===== LOAD ORDERS WITH REALTIME =====
   async function loadOrders(silent = false) {
@@ -382,15 +498,18 @@ export default function AdminDashboardPage() {
     };
   }, [activeTab]);
 
-    // 👇 TAMBAHKAN USEEFFECT E-BOOKS DI SINI
-  // Load e-books when tab active
   useEffect(() => {
     if (activeTab === "ebooks") {
       loadEbooks();
     }
   }, [activeTab]);
 
-  // Realtime subscription untuk products (e-books)
+    useEffect(() => {
+    if (activeTab === "emails") {
+      loadEmails();
+    }
+  }, [activeTab]);
+
   useEffect(() => {
     if (activeTab !== "ebooks") return;
 
@@ -419,6 +538,46 @@ export default function AdminDashboardPage() {
           } else if (payload.eventType === "DELETE") {
             const deletedId = payload.old.id;
             setEbookProducts((prev) => prev.filter((p) => p.id !== deletedId));
+          }
+          
+          setLastUpdate(new Date());
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== "emails") return;
+
+    const channel = supabase
+      .channel("email-products-changes")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "products",
+          filter: "product_type=eq.gmail",
+        },
+        (payload) => {
+          console.log("🔔 Email product changed:", payload);
+          
+          if (payload.eventType === "INSERT") {
+            const newProduct = payload.new as EbookProduct;
+            setEmailProducts((prev) => [newProduct, ...prev]);
+            showToast("Email product baru ditambahkan!", "success");
+          } else if (payload.eventType === "UPDATE") {
+            const updatedProduct = payload.new as EbookProduct;
+            setEmailProducts((prev) =>
+              prev.map((p) => (p.id === updatedProduct.id ? updatedProduct : p))
+            );
+          } else if (payload.eventType === "DELETE") {
+            const deletedId = payload.old.id;
+            setEmailProducts((prev) => prev.filter((p) => p.id !== deletedId));
           }
           
           setLastUpdate(new Date());
@@ -620,6 +779,22 @@ export default function AdminDashboardPage() {
   }
 }
 
+async function loadEmails(silent = false) {
+  const { data, error } = await supabase
+    .from("products")
+    .select("*")
+    .eq("product_type", "gmail")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("Load emails error:", error);
+    if (!silent) showToast("Gagal memuat email products", "error");
+  } else if (data) {
+    setEmailProducts(data as EbookProduct[]);
+    setLastUpdate(new Date());
+  }
+}
+
 // Reset form
 const resetEbookForm = () => {
   setEbookForm({
@@ -631,6 +806,18 @@ const resetEbookForm = () => {
     is_active: true,
   });
   setEditingEbook(null);
+};
+
+const resetEmailForm = () => {
+  setEmailForm({
+    name: "",
+    description: "",
+    price: "",
+    unit_count: "1",
+    file_url: "",
+    is_active: true,
+  });
+  setEditingEmail(null);
 };
 
 // Edit handler
@@ -687,6 +874,7 @@ const handleSaveEbook = async () => {
         showToast("E-book berhasil diupdate! ✨", "success");
         setShowAddEbook(false);
         resetEbookForm();
+        await loadEbooks(true)
       }
     } else {
       const { error } = await supabase
@@ -743,6 +931,119 @@ const toggleEbookStatus = async (ebook: EbookProduct) => {
       `E-book ${!ebook.is_active ? "diaktifkan" : "dinonaktifkan"}!`,
       "success"
     );
+    await loadEbooks(true);
+  }
+};
+const handleEditEmail = (email: EbookProduct) => {
+  setEditingEmail(email);
+  setEmailForm({
+    name: email.name,
+    description: email.description || "",
+    price: email.price.toString(),
+    unit_count: email.unit_count.toString(),
+    file_url: email.file_url || "",
+    is_active: email.is_active,
+  });
+  setShowAddEmail(true);
+};
+
+const handleSaveEmail = async () => {
+  if (!emailForm.name.trim()) {
+    showToast("Nama email product wajib diisi", "error");
+    return;
+  }
+  if (!emailForm.price || parseFloat(emailForm.price) <= 0) {
+    showToast("Harga harus lebih dari 0", "error");
+    return;
+  }
+  if (!emailForm.unit_count || parseInt(emailForm.unit_count) <= 0) {
+    showToast("Jumlah unit harus lebih dari 0", "error");
+    return;
+  }
+
+  setSavingEmail(true);
+
+  try {
+    const payload = {
+      name: emailForm.name.trim(),
+      description: emailForm.description.trim() || null,
+      price: parseFloat(emailForm.price),
+      unit_count: parseInt(emailForm.unit_count),
+      file_url: emailForm.file_url.trim() || null,
+      is_active: emailForm.is_active,
+      product_type: "gmail",
+    };
+
+    if (editingEmail) {
+      const { error } = await supabase
+        .from("products")
+        .update(payload)
+        .eq("id", editingEmail.id);
+
+      if (error) {
+        showToast("Gagal update email product: " + error.message, "error");
+      } else {
+        showToast("Email product berhasil diupdate! ✨", "success");
+        setShowAddEmail(false);
+        resetEmailForm();
+        await loadEmails(true);
+      }
+    } else {
+      const { error } = await supabase
+        .from("products")
+        .insert([payload]);
+
+      if (error) {
+        showToast("Gagal menambahkan email product: " + error.message, "error");
+      } else {
+        showToast("Email product berhasil ditambahkan! 🎉", "success");
+        setShowAddEmail(false);
+        resetEmailForm();
+        await loadEmails(true);
+      }
+    }
+  } catch (err: any) {
+    showToast("Error: " + err.message, "error");
+  } finally {
+    setSavingEmail(false);
+  }
+};
+
+const handleDeleteEmail = (email: EbookProduct) => {
+  setConfirmModal({
+    title: "Hapus Email Product?",
+    message: `Email product "${email.name}" akan dihapus permanen. Yakin ingin melanjutkan?`,
+    type: "danger",
+    onConfirm: async () => {
+      const { error } = await supabase
+        .from("products")
+        .delete()
+        .eq("id", email.id);
+
+      if (error) {
+        showToast("Gagal menghapus email product: " + error.message, "error");
+      } else {
+        showToast("Email product berhasil dihapus!", "success");
+        await loadEmails(true);
+      }
+    },
+  });
+};
+
+const toggleEmailStatus = async (email: EbookProduct) => {
+  const { error } = await supabase
+    .from("products")
+    .update({ is_active: !email.is_active })
+    .eq("id", email.id);
+
+  if (error) {
+    showToast("Gagal mengubah status: " + error.message, "error");
+  } else {
+    showToast(
+      `Email product ${!email.is_active ? "diaktifkan" : "dinonaktifkan"}!`,
+      "success"
+    );
+    await loadEmails(true);
   }
 };
   const copyToClipboard = (text: string, id: string) => {
@@ -843,10 +1144,13 @@ const toggleEbookStatus = async (ebook: EbookProduct) => {
       )}
 
       <div className="max-w-7xl mx-auto px-3 md:px-4 py-6 md:py-12 space-y-6 md:space-y-8">
-        {/* Header */}
+{/* Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 md:gap-6">
+          
+          {/* Bagian Kiri: Judul & Info (JANGAN DIUBAH) */}
           <div>
             <div className="flex items-center gap-2 md:gap-3 mb-3 md:mb-4 flex-wrap">
+              {/* ... kode span live, jam, tombol refresh biarkan saja ... */}
               <span className="inline-flex items-center px-2.5 md:px-3 py-1 md:py-1.5 rounded-full text-[10px] md:text-xs font-semibold border border-emerald-500/40 text-emerald-300 bg-emerald-500/10 backdrop-blur-sm animate-pulse">
                 🟢 Live
               </span>
@@ -873,19 +1177,46 @@ const toggleEbookStatus = async (ebook: EbookProduct) => {
             </p>
           </div>
 
-          <button
-            onClick={() => {
-              if (typeof window !== "undefined") {
-                window.localStorage.removeItem("ds_admin_auth");
-              }
-              router.push("/admin/login");
-            }}
-            className="inline-flex items-center gap-1.5 md:gap-2 px-4 md:px-5 py-2 md:py-2.5 rounded-xl border border-slate-700 hover:border-slate-500 text-xs md:text-sm font-medium text-slate-200 transition-all bg-slate-900/40 hover:bg-slate-800/60"
-          >
-            <LogOut className="w-3.5 h-3.5 md:w-4 md:h-4" />
-            <span className="hidden sm:inline">Logout</span>
-            <span className="sm:hidden">Keluar</span>
-          </button>
+          {/* 👇 PERUBAHAN DI SINI: Bungkus kedua tombol dalam div ini 👇 */}
+          <div className="flex items-center gap-3">
+            
+            {/* Tombol Maintenance */}
+            <button
+              onClick={toggleMaintenance}
+              disabled={loadingMaintenance}
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl border text-xs md:text-sm font-bold transition-all ${
+                maintenanceMode 
+                  ? "bg-red-500/10 border-red-500 text-red-500 hover:bg-red-500/20" 
+                  : "bg-slate-900 border-slate-700 text-slate-400 hover:border-emerald-500 hover:text-emerald-400"
+              }`}
+            >
+              {loadingMaintenance ? (
+                <span className="animate-spin">⌛</span>
+              ) : maintenanceMode ? (
+                <><Lock className="w-4 h-4" /> Mode Maintenance</>
+              ) : (
+                <><Unlock className="w-4 h-4" /> Website Live</>
+              )}
+            </button>
+
+            {/* Tombol Logout */}
+            <button
+              onClick={() => {
+                if (typeof window !== "undefined") {
+                  window.localStorage.removeItem("ds_admin_auth");
+                }
+                router.push("/admin/login");
+              }}
+              className="inline-flex items-center gap-1.5 md:gap-2 px-4 md:px-5 py-2 md:py-2.5 rounded-xl border border-slate-700 hover:border-slate-500 text-xs md:text-sm font-medium text-slate-200 transition-all bg-slate-900/40 hover:bg-slate-800/60"
+            >
+              <LogOut className="w-3.5 h-3.5 md:w-4 md:h-4" />
+              <span className="hidden sm:inline">Logout</span>
+              <span className="sm:hidden">Keluar</span>
+            </button>
+
+          </div> 
+          {/* 👆 AKHIR BUNGKUSAN 👆 */}
+
         </div>
 
         {/* Stats Cards - tetap sama seperti kode asli, cuma data sudah realtime */}
@@ -980,10 +1311,11 @@ const toggleEbookStatus = async (ebook: EbookProduct) => {
 
         {/* Tabs */}
         <div className="border-b border-slate-800 sticky top-0 bg-slate-950/80 backdrop-blur-xl z-20 rounded-t-xl md:rounded-t-2xl">
-          <div className="flex gap-1 md:gap-2 p-1">
+          {/* Tambahkan: overflow-x-auto, flex-nowrap, dan hide scrollbar style */}
+          <div className="flex gap-2 p-1 overflow-x-auto flex-nowrap no-scrollbar [&::-webkit-scrollbar]:hidden">
             <button
               onClick={() => setActiveTab("orders")}
-              className={`flex-1 md:flex-none px-3 md:px-6 py-2 md:py-3 text-xs md:text-sm font-semibold rounded-lg md:rounded-xl transition-all flex items-center justify-center gap-1.5 md:gap-2 ${
+              className={`flex-none shrink-0 px-4 md:px-6 md:px-6 py-2 md:py-3 text-xs md:text-sm font-semibold rounded-lg md:rounded-xl transition-all flex items-center justify-center gap-1.5 md:gap-2 ${
                 activeTab === "orders"
                   ? "bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/30"
                   : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
@@ -998,7 +1330,7 @@ const toggleEbookStatus = async (ebook: EbookProduct) => {
             </button>
             <button
               onClick={() => setActiveTab("stock")}
-              className={`flex-1 md:flex-none px-3 md:px-6 py-2 md:py-3 text-xs md:text-sm font-semibold rounded-lg md:rounded-xl transition-all flex items-center justify-center gap-1.5 md:gap-2 ${
+              className={`flex-none shrink-0 px-4 md:px-6 md:px-6 py-2 md:py-3 text-xs md:text-sm font-semibold rounded-lg md:rounded-xl transition-all flex items-center justify-center gap-1.5 md:gap-2 ${
                 activeTab === "stock"
                   ? "bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/30"
                   : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
@@ -1011,10 +1343,9 @@ const toggleEbookStatus = async (ebook: EbookProduct) => {
                 {availableStock}
               </span>
             </button>
-                        {/* 👇 TAMBAHKAN TAB BUTTON E-BOOKS DI SINI */}
             <button
               onClick={() => setActiveTab("ebooks")}
-              className={`flex-1 md:flex-none px-3 md:px-6 py-2 md:py-3 text-xs md:text-sm font-semibold rounded-lg md:rounded-xl transition-all flex items-center justify-center gap-1.5 md:gap-2 ${
+              className={`flex-none shrink-0 px-4 md:px-6 md:px-6 py-2 md:py-3 text-xs md:text-sm font-semibold rounded-lg md:rounded-xl transition-all flex items-center justify-center gap-1.5 md:gap-2 ${
                 activeTab === "ebooks"
                   ? "bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/30"
                   : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
@@ -1028,8 +1359,43 @@ const toggleEbookStatus = async (ebook: EbookProduct) => {
               </span>
             </button>
             <button
+              onClick={() => setActiveTab("templates")}
+              className={`flex-none shrink-0 px-4 md:px-6 md:px-6 py-2 md:py-3 text-xs md:text-sm font-semibold rounded-lg md:rounded-xl transition-all flex items-center justify-center gap-1.5 md:gap-2 ${
+                activeTab === "templates"
+                  ? "bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/30"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+              }`}
+            >
+              <LayoutTemplate className="w-3.5 h-3.5 md:w-4 md:h-4" />
+              
+              {/* Teks Desktop */}
+              <span className="hidden sm:inline">Templates</span>
+              
+              {/* Teks Mobile (agar tidak cuma angka '1') */}
+              <span className="sm:hidden">WP</span> 
+              
+              <span className="text-[10px] md:text-xs px-1.5 md:px-2 py-0.5 rounded-full bg-slate-950/30">
+                {templateProducts.length}
+              </span>
+            </button>
+            <button
+              onClick={() => setActiveTab("emails")}
+              className={`flex-none shrink-0 px-4 md:px-6 md:px-6 py-2 md:py-3 text-xs md:text-sm font-semibold rounded-lg md:rounded-xl transition-all flex items-center justify-center gap-1.5 md:gap-2 ${
+                activeTab === "emails"
+                  ? "bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/30"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+              }`}
+            >
+              <Package className="w-3.5 h-3.5 md:w-4 md:h-4" />
+              <span className="hidden sm:inline">Email Products</span>
+              <span className="sm:hidden">Email</span>
+              <span className="text-[10px] md:text-xs px-1.5 md:px-2 py-0.5 rounded-full bg-slate-950/30">
+                {emailProducts.length}
+              </span>
+            </button>
+            <button
               onClick={() => setActiveTab("finance")}
-              className={`flex-1 md:flex-none px-3 md:px-6 py-2 md:py-3 text-xs md:text-sm font-semibold rounded-lg md:rounded-xl transition-all flex items-center justify-center gap-1.5 md:gap-2 ${
+              className={`flex-none shrink-0 px-4 md:px-6 md:px-6 py-2 md:py-3 text-xs md:text-sm font-semibold rounded-lg md:rounded-xl transition-all flex items-center justify-center gap-1.5 md:gap-2 ${
                 activeTab === "finance"
                   ? "bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/30"
                   : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
@@ -1626,6 +1992,226 @@ const toggleEbookStatus = async (ebook: EbookProduct) => {
             </div>
           </section>
         )}
+        {/* Tab Content: Templates */}
+        {activeTab === "templates" && (
+          <section className="space-y-4 md:space-y-5">
+            <div className="border border-slate-800 bg-slate-900/80 rounded-xl md:rounded-2xl p-4 md:p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 md:gap-5 shadow-xl">
+              <div>
+                <h2 className="text-lg md:text-2xl font-bold flex items-center gap-2 md:gap-3">
+                  <LayoutTemplate className="w-5 h-5 md:w-6 md:h-6 text-blue-400" />
+                  Produk Templates
+                </h2>
+                <p className="text-xs md:text-sm text-slate-400 mt-1">Kelola tema & plugin WordPress</p>
+              </div>
+              <button
+                onClick={() => {
+                  setTemplateForm(defaultTemplateForm);
+                  setEditingTemplate(null);
+                  setShowAddTemplate(true);
+                  setEditingTemplate(null);
+                  setShowAddTemplate(true);
+                }}
+                className="w-full md:w-auto inline-flex items-center justify-center gap-1.5 md:gap-2 px-4 py-2.5 rounded-xl bg-blue-500 hover:bg-blue-600 text-sm font-bold"
+              >
+                <Plus className="w-4 h-4" /> Tambah Template
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {templateProducts.map((item) => (
+                <div key={item.id} className="p-4 border border-slate-800 bg-slate-900 rounded-xl hover:border-blue-500/50 transition-all">
+                  <div className="flex justify-between items-start mb-2">
+                    <h4 className="font-bold text-lg">{item.name}</h4>
+                    <span className={`text-xs px-2 py-1 rounded-full ${item.is_active ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+                      {item.is_active ? 'Aktif' : 'Nonaktif'}
+                    </span>
+                  </div>
+                  <p className="text-sm text-slate-400 line-clamp-2 mb-4">{item.description}</p>
+                  <div className="flex justify-between items-center border-t border-slate-800 pt-3">
+                    <span className="font-bold text-blue-400">Rp {item.price.toLocaleString()}</span>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => {
+                          setEditingTemplate(item);
+                          setTemplateForm({
+                            name: item.name,
+                            description: item.description || "",
+                            price: item.price.toString(),
+                            discount_price: item.discount_price ? item.discount_price.toString() : "",          // ✅
+                            discount_percentage: item.discount_percentage ? item.discount_percentage.toString() : "", // ✅
+                            unit_count: item.unit_count.toString(),
+                            file_url: item.file_url || "",
+                            is_active: item.is_active,
+                          });
+                          setShowAddTemplate(true);
+                        }}
+                        className="p-2 hover:bg-slate-800 rounded-lg"><Edit className="w-4 h-4 text-slate-300"/>
+                      </button>
+                      <button 
+                        onClick={async () => {
+                          if(!confirm("Hapus template ini?")) return;
+                          await supabase.from("products").delete().eq("id", item.id);
+                          loadTemplates(true);
+                        }}
+                        className="p-2 hover:bg-slate-800 rounded-lg"><Trash2 className="w-4 h-4 text-red-400"/>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+        {activeTab === "emails" && (
+          <section className="space-y-4 md:space-y-5">
+            <div className="border border-slate-800 bg-slate-900/80 rounded-xl md:rounded-2xl p-4 md:p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 md:gap-5 shadow-xl">
+              <div>
+                <h2 className="text-lg md:text-2xl font-bold flex items-center gap-2 md:gap-3">
+                  <Package className="w-5 h-5 md:w-6 md:h-6 text-blue-400" />
+                  Produk Email
+                </h2>
+                <p className="text-xs md:text-sm text-slate-400 mt-1.5 md:mt-2 flex items-center gap-1.5 md:gap-2">
+                  <CheckCircle2 className="w-3.5 h-3.5 md:w-4 md:h-4 text-blue-400" />
+                  {emailProducts.filter(p => p.is_active).length} aktif · {emailProducts.filter(p => !p.is_active).length} nonaktif
+                </p>
+                <p className="text-[10px] md:text-xs text-slate-500 mt-1.5 md:mt-2 hidden md:block">
+                  Kelola produk email untuk dijual
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  resetEmailForm();
+                  setShowAddEmail(true);
+                }}
+                className="w-full md:w-auto inline-flex items-center justify-center gap-1.5 md:gap-2 px-4 md:px-6 py-2.5 md:py-3 rounded-lg md:rounded-xl bg-blue-500 hover:bg-blue-600 text-xs md:text-sm font-bold transition-all shadow-lg shadow-blue-500/30"
+              >
+                <Plus className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                Tambah Email Product
+              </button>
+            </div>
+
+            <div className="border border-slate-800 bg-slate-900 rounded-xl md:rounded-2xl overflow-hidden shadow-2xl">
+              <div className="bg-slate-950/80 border-b border-slate-800 px-4 md:px-6 py-3 md:py-4 flex items-center justify-between">
+                <h3 className="font-bold text-base md:text-lg">Daftar Email Products</h3>
+                <span className="text-[10px] md:text-xs text-slate-400 flex items-center gap-1.5 md:gap-2">
+                  <Package className="w-3 h-3 md:w-3.5 md:h-3.5" />
+                  {emailProducts.length} produk
+                </span>
+              </div>
+
+              <div className="divide-y divide-slate-800 max-h-[600px] overflow-y-auto">
+                {emailProducts.length === 0 ? (
+                  <div className="text-center py-12 md:py-16 space-y-3 md:space-y-4 px-4">
+                    <div className="w-16 h-16 md:w-20 md:h-20 mx-auto rounded-xl md:rounded-2xl bg-slate-800/50 flex items-center justify-center">
+                      <Package className="w-8 h-8 md:w-10 md:h-10 text-slate-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm md:text-base font-semibold text-slate-300">
+                        Belum ada produk email
+                      </p>
+                      <p className="text-xs md:text-sm text-slate-500 mt-2">
+                        Klik "Tambah Email Product" untuk membuat produk baru
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  emailProducts.map((email) => (
+                    <div
+                      key={email.id}
+                      className="p-4 md:p-5 hover:bg-slate-950/60 transition-all"
+                    >
+                      <div className="flex items-start gap-3 md:gap-4">
+                        <div className="shrink-0 w-12 h-12 md:w-14 md:h-14 rounded-lg md:rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center">
+                          <Package className="w-6 h-6 md:w-7 md:h-7 text-blue-400" />
+                        </div>
+
+                        <div className="flex-1 min-w-0 space-y-2 md:space-y-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                              <h4 className="text-sm md:text-base font-bold text-slate-100 truncate">
+                                {email.name}
+                              </h4>
+                              {email.description && (
+                                <p className="text-xs md:text-sm text-slate-400 mt-1 line-clamp-2">
+                                  {email.description}
+                                </p>
+                              )}
+                            </div>
+                            <button
+                              onClick={() => toggleEmailStatus(email)}
+                              className={`shrink-0 px-2 md:px-3 py-1 md:py-1.5 text-[10px] md:text-xs font-bold rounded-full transition-all ${
+                                email.is_active
+                                  ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30"
+                                  : "bg-slate-700 text-slate-400 border border-slate-600 hover:bg-slate-600"
+                              }`}
+                            >
+                              {email.is_active ? "Aktif" : "Nonaktif"}
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-3 text-xs md:text-sm">
+                            <div className="flex items-center gap-1.5 md:gap-2 text-blue-400">
+                              <CircleDollarSign className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                              <span className="font-bold">
+                                Rp {email.price.toLocaleString("id-ID")}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5 md:gap-2 text-slate-400">
+                              <Package className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                              <span>{email.unit_count} unit</span>
+                            </div>
+                            {email.file_url ? (
+                              <div className="flex items-center gap-1.5 md:gap-2 text-emerald-400 col-span-2 md:col-span-1">
+                                <LinkIcon className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                                <a
+                                  href={email.file_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="hover:underline truncate"
+                                >
+                                  Link tersedia
+                                </a>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1.5 md:gap-2 text-red-400 col-span-2 md:col-span-1">
+                                <AlertCircle className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                                <span>Belum ada link</span>
+                              </div>
+                            )}
+                          </div>
+
+                          <p className="text-[10px] md:text-xs text-slate-500 flex items-center gap-1.5 md:gap-2">
+                            <Clock className="w-2.5 h-2.5 md:w-3 md:h-3" />
+                            Dibuat {new Date(email.created_at).toLocaleDateString("id-ID", {
+                              dateStyle: "medium",
+                            })}
+                          </p>
+
+                          <div className="flex items-center gap-2 md:gap-3 pt-2">
+                            <button
+                              onClick={() => handleEditEmail(email)}
+                              className="flex-1 md:flex-none inline-flex items-center justify-center gap-1.5 md:gap-2 px-3 md:px-4 py-2 md:py-2.5 text-xs md:text-sm font-medium border border-slate-700 rounded-lg md:rounded-xl hover:bg-slate-800 hover:border-slate-600 transition-all"
+                            >
+                              <Edit className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                              <span className="hidden sm:inline">Edit</span>
+                            </button>
+                            <button
+                              onClick={() => handleDeleteEmail(email)}
+                              className="flex-1 md:flex-none inline-flex items-center justify-center gap-1.5 md:gap-2 px-3 md:px-4 py-2 md:py-2.5 text-xs md:text-sm font-bold text-red-400 hover:text-red-300 border border-red-900/50 rounded-lg md:rounded-xl hover:bg-red-950/30 transition-all"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                              <span className="hidden sm:inline">Hapus</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </section>
+        )}
 
         {/* Tab Content: Finance */}
         {activeTab === "finance" && (
@@ -1841,7 +2427,7 @@ const toggleEbookStatus = async (ebook: EbookProduct) => {
               {!bulkMode ? (
                 <div className="space-y-4 md:space-y-5">
                   <div>
-                    <label className="text-xs md:text-sm font-bold text-slate-300 block mb-2 md:mb-2.5 flex items-center gap-2">
+                    <label className="text-xs md:text-sm font-bold text-slate-300 flex mb-2 md:mb-2.5 flex items-center gap-2">
                       <span>Username / Email</span>
                     </label>
                     <input
@@ -2069,7 +2655,7 @@ const toggleEbookStatus = async (ebook: EbookProduct) => {
 
               {/* File URL */}
               <div>
-                <label className="text-xs md:text-sm font-bold text-slate-300 block mb-2 md:mb-2.5 flex items-center gap-2">
+                <label className="text-xs md:text-sm font-bold text-slate-300 flex mb-2 md:mb-2.5 flex items-center gap-2">
                   <LinkIcon className="w-3.5 h-3.5 md:w-4 md:h-4" />
                   Link Google Drive
                 </label>
@@ -2149,6 +2735,403 @@ const toggleEbookStatus = async (ebook: EbookProduct) => {
           </div>
         </div>
       )}
+            {/* 👇 TAMBAHKAN MODAL EMAIL DI SINI, SEBELUM </main> */}
+      {showAddEmail && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-50 flex items-center justify-center p-3 md:p-4 animate-in fade-in duration-200 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl md:rounded-2xl max-w-2xl w-full shadow-2xl animate-in zoom-in duration-200 my-4">
+            <div className="border-b border-slate-800 p-4 md:p-6 flex items-center justify-between">
+              <div>
+                <h3 className="text-lg md:text-2xl font-bold flex items-center gap-2">
+                  <Package className="w-5 h-5 md:w-6 md:h-6 text-blue-400" />
+                  {editingEmail ? "Edit Gmail Product" : "Tambah Gmail Product Baru"}
+                </h3>
+                <p className="text-xs md:text-sm text-slate-400 mt-1.5 md:mt-2">
+                  {editingEmail ? "Update informasi gmail product" : "Tambahkan gmail product ke katalog"}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowAddEmail(false);
+                  resetEmailForm();
+                }}
+                className="p-2 md:p-2.5 hover:bg-slate-800 rounded-lg md:rounded-xl transition-all"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 md:p-6 space-y-4 md:space-y-5 max-h-[60vh] overflow-y-auto">
+              <div>
+                <label className="text-xs md:text-sm font-bold text-slate-300 block mb-2 md:mb-2.5">
+                  Nama Gmail Product <span className="text-red-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={emailForm.name}
+                  onChange={(e) => setEmailForm({ ...emailForm, name: e.target.value })}
+                  placeholder="Contoh: Akun Gmail Aged PVA 2020"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg md:rounded-xl px-3 md:px-4 py-2.5 md:py-3.5 text-xs md:text-sm focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs md:text-sm font-bold text-slate-300 block mb-2 md:mb-2.5">
+                  Deskripsi
+                </label>
+                <textarea
+                  value={emailForm.description}
+                  onChange={(e) => setEmailForm({ ...emailForm, description: e.target.value })}
+                  placeholder="Deskripsikan konten gmail product secara singkat..."
+                  rows={3}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg md:rounded-xl px-3 md:px-4 py-2.5 md:py-3 text-xs md:text-sm focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all resize-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 md:gap-4">
+                <div>
+                  <label className="text-xs md:text-sm font-bold text-slate-300 block mb-2 md:mb-2.5">
+                    Harga (Rp) <span className="text-red-400">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={emailForm.price}
+                    onChange={(e) => setEmailForm({ ...emailForm, price: e.target.value })}
+                    placeholder="50000"
+                    min="0"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg md:rounded-xl px-3 md:px-4 py-2.5 md:py-3.5 text-xs md:text-sm focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs md:text-sm font-bold text-slate-300 block mb-2 md:mb-2.5">
+                    Jumlah Akun <span className="text-red-400">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={emailForm.unit_count}
+                    onChange={(e) => setEmailForm({ ...emailForm, unit_count: e.target.value })}
+                    placeholder="1"
+                    min="1"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg md:rounded-xl px-3 md:px-4 py-2.5 md:py-3.5 text-xs md:text-sm focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all"
+                  />
+                  <p className="text-[10px] md:text-xs text-slate-500 mt-1.5">
+                    Per order customer dapat berapa akun
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs md:text-sm font-bold text-slate-300 block mb-2 md:mb-2.5 flex items-center gap-2">
+                  <LinkIcon className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                  Link File (Opsional)
+                </label>
+                <input
+                  type="url"
+                  value={emailForm.file_url}
+                  onChange={(e) => setEmailForm({ ...emailForm, file_url: e.target.value })}
+                  placeholder="https://drive.google.com/file/d/xxx/view?usp=sharing"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg md:rounded-xl px-3 md:px-4 py-2.5 md:py-3.5 text-xs md:text-sm focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all"
+                />
+                <p className="text-[10px] md:text-xs text-slate-500 mt-1.5">
+                  Link tambahan akan dikirim ke customer via WhatsApp
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3 p-3 md:p-4 bg-slate-950/60 rounded-lg md:rounded-xl border border-slate-800">
+                <input
+                  type="checkbox"
+                  id="email-active"
+                  checked={emailForm.is_active}
+                  onChange={(e) => setEmailForm({ ...emailForm, is_active: e.target.checked })}
+                  className="w-4 h-4 md:w-5 md:h-5 rounded border-slate-600 bg-slate-900 cursor-pointer"
+                />
+                <label htmlFor="email-active" className="text-xs md:text-sm font-medium text-slate-300 cursor-pointer flex-1">
+                  Aktifkan produk (tampil di halaman customer)
+                </label>
+              </div>
+
+              <div className="bg-blue-950/30 border border-blue-900/50 rounded-lg md:rounded-xl p-3 md:p-4 flex items-start gap-2 md:gap-3">
+                <AlertCircle className="w-4 h-4 md:w-5 md:h-5 text-blue-400 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-xs md:text-sm font-semibold text-blue-300 mb-1">
+                    Tips
+                  </p>
+                  <ul className="text-[10px] md:text-xs text-blue-300/80 space-y-1">
+                    <li>• Pastikan stok akun gmail tersedia di menu Stok Akun</li>
+                    <li>• Gunakan deskripsi yang jelas tentang kualitas akun</li>
+                    <li>• Unit count = jumlah akun yang diterima customer per order</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t border-slate-800 p-4 md:p-6 flex items-center justify-end gap-2 md:gap-3">
+              <button
+                onClick={() => {
+                  setShowAddEmail(false);
+                  resetEmailForm();
+                }}
+                disabled={savingEmail}
+                className="px-4 md:px-6 py-2 md:py-2.5 rounded-lg md:rounded-xl border border-slate-700 hover:bg-slate-800 text-xs md:text-sm font-medium transition-all disabled:opacity-50"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleSaveEmail}
+                disabled={savingEmail || !emailForm.name.trim() || !emailForm.price}
+                className="inline-flex items-center gap-1.5 md:gap-2 px-5 md:px-8 py-2 md:py-2.5 rounded-lg md:rounded-xl bg-blue-500 hover:bg-blue-600 text-xs md:text-sm font-bold disabled:bg-slate-700 disabled:cursor-not-allowed transition-all shadow-lg shadow-blue-500/30"
+              >
+                {savingEmail ? (
+                  <>
+                    <div className="h-3.5 w-3.5 md:h-4 md:w-4 animate-spin rounded-full border-2 border-slate-900 border-t-slate-50" />
+                    <span className="hidden md:inline">Menyimpan...</span>
+                    <span className="md:hidden">...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                    {editingEmail ? "Update Gmail Product" : "Simpan Gmail Product"}
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+        {/* Modal Add/Edit Template */}
+        {showAddTemplate && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-50 flex items-center justify-center p-4 overflow-y-auto">
+            <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-2xl w-full shadow-2xl animate-in zoom-in my-4">
+              {/* Header */}
+              <div className="border-b border-slate-800 p-6 flex items-center justify-between">
+                <div>
+                  <h3 className="text-2xl font-bold flex items-center gap-2">
+                    <LayoutTemplate className="w-6 h-6 text-blue-400" />
+                    {editingTemplate ? "Edit Template" : "Tambah Template Baru"}
+                  </h3>
+                  <p className="text-sm text-slate-400 mt-2">
+                    {editingTemplate ? "Update informasi template" : "Tambahkan template premium ke katalog"}
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowAddTemplate(false);
+                    setTemplateForm({ name: "", description: "", price: "", discount_price: "", discount_percentage: "", unit_count: "1", file_url: "", is_active: true });
+                    setEditingTemplate(null);
+                  }}
+                  className="p-2.5 hover:bg-slate-800 rounded-xl transition-all"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-6 space-y-5 max-h-[60vh] overflow-y-auto">
+                {/* Nama Template */}
+                <div>
+                  <label className="text-sm font-bold text-slate-300 block mb-2.5">
+                    Nama Template <span className="text-red-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={templateForm.name}
+                    onChange={(e) => setTemplateForm({ ...templateForm, name: e.target.value })}
+                    placeholder="Contoh: Tema E-Commerce Modern"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all"
+                  />
+                </div>
+
+                {/* Deskripsi */}
+                <div>
+                  <label className="text-sm font-bold text-slate-300 block mb-2.5">
+                    Deskripsi
+                  </label>
+                  <textarea
+                    value={templateForm.description}
+                    onChange={(e) => setTemplateForm({ ...templateForm, description: e.target.value })}
+                    placeholder="Deskripsikan template secara singkat..."
+                    rows={3}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all resize-none"
+                  />
+                </div>
+
+                {/* 🔥 HARGA & DISKON - ENHANCED */}
+                <div className="grid grid-cols-2 gap-4">
+                  {/* Harga Normal */}
+                  <div>
+                    <label className="text-sm font-bold text-slate-300 block mb-2.5">
+                      Harga Normal (Rp) <span className="text-red-400">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      value={templateForm.price}
+                      onChange={(e) => {
+                        const newPrice = e.target.value;
+                        setTemplateForm({ ...templateForm, price: newPrice });
+                        
+                        // Auto-calculate discount percentage if discount_price exists
+                        if (templateForm.discount_price && parseFloat(newPrice) > 0) {
+                          const discountPercent = Math.round(
+                            ((parseFloat(newPrice) - parseFloat(templateForm.discount_price)) / parseFloat(newPrice)) * 100
+                          );
+                          setTemplateForm(prev => ({ ...prev, discount_percentage: discountPercent.toString() }));
+                        }
+                      }}
+                      placeholder="150000"
+                      min="0"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all"
+                    />
+                  </div>
+
+                  {/* Harga Diskon */}
+                  <div>
+                    <label className="text-sm font-bold text-slate-300 block mb-2.5 flex items-center gap-2">
+                      Harga Diskon (Rp)
+                      <span className="text-xs text-slate-500 font-normal">(Opsional)</span>
+                    </label>
+                    <input
+                      type="number"
+                      value={templateForm.discount_price}
+                      onChange={(e) => {
+                        const newDiscountPrice = e.target.value;
+                        setTemplateForm({ ...templateForm, discount_price: newDiscountPrice });
+                        
+                        // Auto-calculate discount percentage
+                        if (newDiscountPrice && templateForm.price && parseFloat(templateForm.price) > 0) {
+                          const discountPercent = Math.round(
+                            ((parseFloat(templateForm.price) - parseFloat(newDiscountPrice)) / parseFloat(templateForm.price)) * 100
+                          );
+                          setTemplateForm(prev => ({ ...prev, discount_percentage: discountPercent.toString() }));
+                        }
+                      }}
+                      placeholder="100000"
+                      min="0"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all"
+                    />
+                  </div>
+                </div>
+
+                {/* Persentase Diskon (Auto-calculated) */}
+                {templateForm.discount_price && templateForm.price && parseFloat(templateForm.price) > 0 && (
+                  <div className="bg-emerald-950/30 border border-emerald-900/50 rounded-xl p-4 flex items-center gap-3">
+                    <Tag className="w-5 h-5 text-emerald-400" />
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-emerald-300">
+                        Diskon Otomatis Terhitung
+                      </p>
+                      <p className="text-xs text-emerald-400/80 mt-1">
+                        Pelanggan hemat{" "}
+                        <span className="font-bold">
+                          {templateForm.discount_percentage}%
+                        </span>
+                        {" "}atau{" "}
+                        <span className="font-bold">
+                          Rp {(parseFloat(templateForm.price) - parseFloat(templateForm.discount_price)).toLocaleString("id-ID")}
+                        </span>
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Unit Count */}
+                <div>
+                  <label className="text-sm font-bold text-slate-300 block mb-2.5">
+                    Jumlah Unit <span className="text-red-400">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={templateForm.unit_count}
+                    onChange={(e) => setTemplateForm({ ...templateForm, unit_count: e.target.value })}
+                    placeholder="1"
+                    min="1"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all"
+                  />
+                  <p className="text-xs text-slate-500 mt-1.5">
+                    Untuk bundle template
+                  </p>
+                </div>
+
+                {/* File URL */}
+                <div>
+                  <label className="text-sm font-bold text-slate-300 flex mb-2.5 items-center gap-2">
+                    <LinkIcon className="w-4 h-4" />
+                    Link Google Drive
+                  </label>
+                  <input
+                    type="url"
+                    value={templateForm.file_url}
+                    onChange={(e) => setTemplateForm({ ...templateForm, file_url: e.target.value })}
+                    placeholder="https://drive.google.com/file/d/xxx/view?usp=sharing"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all"
+                  />
+                  <p className="text-xs text-slate-500 mt-1.5">
+                    Link download akan dikirim ke customer via WhatsApp
+                  </p>
+                </div>
+
+                {/* Status Aktif */}
+                <div className="flex items-center gap-3 p-4 bg-slate-950/60 rounded-xl border border-slate-800">
+                  <input
+                    type="checkbox"
+                    id="template-active"
+                    checked={templateForm.is_active}
+                    onChange={(e) => setTemplateForm({ ...templateForm, is_active: e.target.checked })}
+                    className="w-5 h-5 rounded border-slate-600 bg-slate-900 cursor-pointer"
+                  />
+                  <label htmlFor="template-active" className="text-sm font-medium text-slate-300 cursor-pointer flex-1">
+                    Aktifkan produk (tampil di halaman customer)
+                  </label>
+                </div>
+
+                {/* Info Tips */}
+                <div className="bg-blue-950/30 border border-blue-900/50 rounded-xl p-4 flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-semibold text-blue-300 mb-1">
+                      Tips Diskon
+                    </p>
+                    <ul className="text-xs text-blue-300/80 space-y-1">
+                      <li>• Kosongkan "Harga Diskon" jika tidak ingin memberikan diskon</li>
+                      <li>• Persentase diskon akan dihitung otomatis</li>
+                      <li>• Harga diskon harus lebih kecil dari harga normal</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="border-t border-slate-800 p-6 flex items-center justify-end gap-3">
+                <button
+                  onClick={() => {
+                    setShowAddTemplate(false);
+                    setTemplateForm({ name: "", description: "", price: "", discount_price: "", discount_percentage: "", unit_count: "1", file_url: "", is_active: true });
+                    setEditingTemplate(null);
+                  }}
+                  disabled={savingTemplate}
+                  className="px-6 py-2.5 rounded-xl border border-slate-700 hover:bg-slate-800 text-sm font-medium transition-all disabled:opacity-50"
+                >
+                  Batal
+                </button>
+                <button
+                  onClick={handleSaveTemplate}
+                  disabled={savingTemplate || !templateForm.name.trim() || !templateForm.price}
+                  className="inline-flex items-center gap-2 px-8 py-2.5 rounded-xl bg-blue-500 hover:bg-blue-600 text-sm font-bold disabled:bg-slate-700 disabled:cursor-not-allowed transition-all shadow-lg shadow-blue-500/30"
+                >
+                  {savingTemplate ? (
+                    <>
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-900 border-t-slate-50" />
+                      Menyimpan...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      {editingTemplate ? "Update Template" : "Simpan Template"}
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
     </main>
   );
 }

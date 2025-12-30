@@ -179,7 +179,7 @@ export default function EbookProducts({ onBack }: EbookProductsProps) {
 
         {/* Status Produk Kosong */}
         {!loading && !error && products.length === 0 && (
-          <div className="border-2 border-purple-500/30 bg-gradient-to-br from-purple-950/40 to-slate-900 rounded-2xl p-12 text-center">
+          <div className="border-2 border-purple-500/30 bg-linear-to-br from-purple-950/40 to-slate-900 rounded-2xl p-12 text-center">
             <div className="max-w-2xl mx-auto space-y-6">
               <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-purple-500/20 border-2 border-purple-500/50">
                 <svg className="w-12 h-12 text-purple-400" viewBox="0 0 24 24" fill="none">
@@ -212,7 +212,7 @@ export default function EbookProducts({ onBack }: EbookProductsProps) {
                   key={ebook.id}
                   className={`relative border rounded-xl p-5 flex flex-col justify-between transition-all ${
                     popular
-                      ? "bg-gradient-to-br from-purple-950/40 to-slate-900 border-purple-500/30 hover:border-purple-500/50 hover:shadow-xl hover:shadow-purple-500/10"
+                      ? "bg-linear-to-br from-purple-950/40 to-slate-900 border-purple-500/30 hover:border-purple-500/50 hover:shadow-xl hover:shadow-purple-500/10"
                       : "bg-slate-900 border-slate-800 hover:border-slate-700 hover:shadow-lg hover:shadow-purple-500/5"
                   }`}
                 >
