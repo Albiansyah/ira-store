@@ -1,8 +1,35 @@
 'use client'
 import Link from "next/link";
 import { useState, useEffect } from "react";
+import { supabase } from "@/lib/supabaseClient";
 
 export default function HomePage() {
+  // --- LOGIC MAINTENANCE MODE ---
+  const [isMaintenance, setIsMaintenance] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    async function checkStatus() {
+      try {
+        const { data } = await supabase
+          .from("app_settings")
+          .select("value")
+          .eq("key", "maintenance_mode")
+          .single();
+
+        if (data) {
+          setIsMaintenance(data.value);
+        } else {
+          setIsMaintenance(false);
+        }
+      } catch (error) {
+        console.error("Gagal cek maintenance:", error);
+        setIsMaintenance(false);
+      }
+    }
+    checkStatus();
+  }, []);
+
+  // --- LOGIC TIMER PROMO ---
   const [timeLeft, setTimeLeft] = useState({
     hours: 2,
     minutes: 30,
@@ -36,6 +63,7 @@ export default function HomePage() {
     return () => clearInterval(timer);
   }, []);
 
+  // --- LOGIC FAQ ---
   const [openFaq, setOpenFaq] = useState<number | null>(null);
 
   const faqs = [
@@ -57,6 +85,38 @@ export default function HomePage() {
     }
   ];
 
+  // --- RENDER LOADING SCREEN ---
+  if (isMaintenance === null) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-500 font-mono">
+        Memuat data toko...
+      </div>
+    );
+  }
+
+  // --- RENDER MAINTENANCE SCREEN ---
+  if (isMaintenance) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-950 text-slate-50 px-4 text-center">
+        <div className="bg-slate-900 p-8 rounded-2xl border border-slate-800 shadow-2xl max-w-md w-full">
+          <div className="w-16 h-16 bg-red-500/10 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6">
+            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 21h4V9H10z"/><path d="M21 21H3"/><path d="M5 21l9-18 9 18"/></svg>
+          </div>
+          <h1 className="text-2xl md:text-3xl font-bold mb-3 text-slate-100 font-poppins">
+            Sedang Maintenance
+          </h1>
+          <p className="text-slate-400 mb-6 leading-relaxed font-inter">
+            Kami sedang melakukan peningkatan sistem untuk memberikan layanan yang lebih baik. Silakan kembali lagi nanti.
+          </p>
+          <div className="text-xs text-slate-500 font-mono bg-slate-950 p-2 rounded border border-slate-800">
+            Status: System Upgrade
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // --- RENDER MAIN CONTENT (WEBSITE LIVE) ---
   return (
     <main className="min-h-screen bg-slate-950 text-slate-50">
       <div className="max-w-7xl mx-auto px-4 py-12 md:py-20">
@@ -85,7 +145,7 @@ export default function HomePage() {
             </h1>
 
             <p className="text-base md:text-lg text-slate-300 leading-relaxed font-inter">
-              Akses produk digital premium hanya dalam <span className="text-emerald-400 font-semibold">hitungan detik</span>. Mulai dari <span className="text-emerald-400 font-semibold">Rp 2.500</span> — bayar, langsung dapat. Tanpa antri, tanpa ribet!
+              Akses produk digital premium hanya dalam <span className="text-emerald-400 font-semibold">hitungan detik</span>. Mulai dari <span className="text-emerald-400 font-semibold">Rp 3.500</span> — bayar, langsung dapat. Tanpa antri, tanpa ribet!
             </p>
 
             <div className="flex flex-wrap gap-3 pt-4">
@@ -111,7 +171,7 @@ export default function HomePage() {
                 ✅ Kirim otomatis via WA
               </div>
               <div className="px-3.5 py-2 rounded-full bg-slate-900 border border-slate-800 text-xs text-slate-300 font-inter">
-                ✅ Harga mulai Rp 2.500
+                ✅ Harga mulai Rp 3.500
               </div>
               <div className="px-3.5 py-2 rounded-full bg-slate-900 border border-slate-800 text-xs text-slate-300 font-inter">
                 ✅ Tanpa perlu daftar
@@ -144,14 +204,14 @@ export default function HomePage() {
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between items-center p-3 rounded-lg bg-slate-950/60 hover:bg-slate-950/80 transition-colors">
                     <span className="text-slate-400 font-inter">1 Akun</span>
-                    <span className="font-semibold text-slate-200 font-inter">Rp 2.500</span>
+                    <span className="font-semibold text-slate-200 font-inter">Rp 3.500</span>
                   </div>
                   <div className="flex justify-between items-center p-3 rounded-lg bg-slate-950/60 hover:bg-slate-950/80 border border-amber-500/20 transition-colors">
                     <div>
                       <span className="text-slate-300 font-inter">10 Akun</span>
                       <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 font-inter">Hemat 0%</span>
                     </div>
-                    <span className="font-semibold text-slate-200 font-inter">Rp 25.000</span>
+                    <span className="font-semibold text-slate-200 font-inter">Rp 35.000</span>
                   </div>
                   <div className="flex justify-between items-center p-3 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/15 border border-emerald-500/40 transition-colors">
                     <div>
@@ -159,8 +219,8 @@ export default function HomePage() {
                       <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-semibold font-inter">Best Value</span>
                     </div>
                     <div className="text-right">
-                      <div className="text-xs text-slate-500 line-through font-inter">Rp 150.000</div>
-                      <span className="font-bold text-emerald-400 font-inter">Rp 125.000</span>
+                      <div className="text-xs text-slate-500 line-through font-inter">Rp 175.000</div>
+                      <span className="font-bold text-emerald-400 font-inter">Rp 150.000</span>
                     </div>
                   </div>
                 </div>
