@@ -238,18 +238,32 @@ export default function AdminDashboardPage() {
     if (data) setMaintenanceMode(data.value);
   }
 
+// ... kode loadMaintenanceStatus biarkan saja ...
+
   async function toggleMaintenance() {
     setLoadingMaintenance(true);
     const newValue = !maintenanceMode;
-    const { error } = await supabase.from("app_settings").upsert({ key: 'maintenance_mode', value: newValue });
     
-    if (error) {
-      showToast("Gagal update maintenance", "error");
-    } else {
+    try {
+      // 👇 KITA PANGGIL API ROUTE, BUKAN SUPABASE CLIENT LANGSUNG
+      const res = await fetch('/api/maintenance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newValue }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data.error || "Gagal update via API");
+
       setMaintenanceMode(newValue);
-      showToast(newValue ? "⛔ Maintenance Mode AKTIF" : "✅ Maintenance Mode MATI", newValue ? "error" : "success");
+      showToast(newValue ? "⛔ Maintenance Mode = AKTIF ⛔" : "✅ Maintenance Mode = MATI ✅", newValue ? "error" : "success");
+    } catch (err: any) {
+      console.error(err);
+      showToast("Gagal update maintenance: " + err.message, "error");
+    } finally {
+      setLoadingMaintenance(false);
     }
-    setLoadingMaintenance(false);
   }
 
   // ===== LOGIC TEMPLATES =====
