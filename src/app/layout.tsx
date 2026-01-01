@@ -2,9 +2,12 @@ import "./globals.css";
 import type { Metadata } from "next";
 import { Inter, Poppins } from "next/font/google";
 
+// 👇 Import Vercel Analytics
+import { Analytics } from "@vercel/analytics/react";
+
 import { CartProvider } from "../context/CartContext";
 import Header from "../components/Header"; 
-import Footer from "../components/Footer"; // ← Tambah ini
+import Footer from "../components/Footer";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -18,12 +21,31 @@ const poppins = Poppins({
 });
 
 export const metadata: Metadata = {
-  title: "IRA STORE - Digital E-Commerce Top #1",
-  description: "Jual akun Gmail & digital access, kirim otomatis via WhatsApp",
+  title: "IRA STORE - Jual Akun Gmail Fresh, Amanah & Anti Hackback",
+  description: "Pusat produk digital terpercaya. Jual akun Gmail fresh berkualitas, E-book, & Template. Transaksi otomatis kirim via WhatsApp dalam hitungan detik. 100% Amanah, Garansi No Hackback, dan CS Responsif.",
+  keywords: [
+    "jual akun gmail fresh",
+    "akun gmail berkualitas",
+    "produk digital amanah",
+    "jual ebook premium",
+    "template ppt",
+    "ira store",
+    "transaksi otomatis wa",
+    "akun anti hackback"
+  ],
+  authors: [{ name: "Ira Store" }],
   icons: {
     icon: '/logo.png',
     shortcut: '/logo.png',
     apple: '/logo.png',
+  },
+  openGraph: {
+    title: "IRA STORE - Produk Digital Otomatis & Amanah",
+    description: "Belanja produk digital tanpa ribet. Bayar langsung kirim ke WA. Garansi aman, no hackback, dan pelayanan CS super responsif.",
+    url: "https://ira-store.web.id",
+    siteName: "IRA STORE",
+    locale: "id_ID",
+    type: "website",
   },
 };
 
@@ -32,6 +54,38 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+// 👇 Data Schema Markup untuk SEO Google (Toko Online)
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Store",
+    "name": "IRA STORE",
+    "image": "https://ira-store.web.id/logo.png",
+    "description": "Pusat belanja produk digital otomatis terpercaya. Menyediakan Akun Gmail Fresh, E-book, dan Template. Transaksi otomatis, 100% Amanah, Garansi No Hackback, dan Termurah di Indonesia.",
+    "telephone": "+6285184657474", 
+    "url": "https://ira-store.web.id",
+    "address": {
+      "@type": "PostalAddress",
+      "streetAddress": "Digital Store",
+      "addressLocality": "Indonesia",
+      "addressCountry": "ID"
+    },
+    "openingHoursSpecification": {
+      "@type": "OpeningHoursSpecification",
+      "dayOfWeek": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Sunday"
+      ],
+      "opens": "00:00",
+      "closes": "23:59"
+    },
+    "priceRange": "Mulai Rp 1.500" 
+  };
+
   return (
     <html
       lang="id" 
@@ -39,15 +93,25 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="min-h-screen bg-slate-950 text-slate-50 antialiased font-sans">
+        
+        {/* 👇 Inject Script SEO Schema Markup */}
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
+
         <CartProvider>
           <div className="min-h-screen flex flex-col">
             <Header />
 
             <div className="flex-1">{children}</div>
 
-            <Footer /> {/* ← Tambah ini */}
+            <Footer />
           </div>
         </CartProvider>
+
+        {/* 👇 Komponen Pelacak Pengunjung */}
+        <Analytics />
       </body>
     </html>
   );
