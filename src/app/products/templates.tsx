@@ -77,7 +77,7 @@ export default function TemplateProducts({ onBack }: TemplateProductsProps) {
             {[1, 2, 3, 4, 5, 6].map((i) => (
               <div 
                 key={i} 
-                className="h-[420px] rounded-2xl bg-gradient-to-br from-slate-900/80 to-slate-900/40 border border-slate-800/50 animate-pulse"
+                className="h-[420px] rounded-2xl bg-linear-to-br from-slate-900/80 to-slate-900/40 border border-slate-800/50 animate-pulse"
               >
                 <div className="p-6 space-y-4">
                   <div className="w-16 h-16 rounded-xl bg-slate-800/80"></div>
@@ -91,7 +91,7 @@ export default function TemplateProducts({ onBack }: TemplateProductsProps) {
             ))}
           </div>
         ) : products.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-24 border border-dashed border-slate-700/50 rounded-3xl bg-gradient-to-br from-slate-900/60 to-slate-900/30 backdrop-blur-sm">
+          <div className="flex flex-col items-center justify-center py-24 border border-dashed border-slate-700/50 rounded-3xl bg-linear-to-br from-slate-900/60 to-slate-900/30 backdrop-blur-sm">
             <div className="p-6 rounded-2xl bg-slate-800/30 border border-slate-700/50 mb-6">
               <LayoutTemplate className="w-20 h-20 text-slate-600" />
             </div>
@@ -116,18 +116,18 @@ export default function TemplateProducts({ onBack }: TemplateProductsProps) {
               return (
                 <div 
                   key={product.id} 
-                  className="group relative flex flex-col justify-between border border-slate-800/50 bg-gradient-to-br from-slate-900/80 via-slate-900/60 to-slate-900/80 hover:from-slate-900 hover:via-slate-900/90 hover:to-slate-900 hover:border-blue-500/60 rounded-2xl p-6 transition-all duration-500 hover:shadow-2xl hover:shadow-blue-500/20 overflow-hidden backdrop-blur-sm hover:-translate-y-1"
+                  className="group relative flex flex-col justify-between border border-slate-800/50 bg-linear-to-br from-slate-900/80 via-slate-900/60 to-slate-900/80 hover:from-slate-900 hover:via-slate-900/90 hover:to-slate-900 hover:border-blue-500/60 rounded-2xl p-6 transition-all duration-500 hover:shadow-2xl hover:shadow-blue-500/20 overflow-hidden backdrop-blur-sm hover:-translate-y-1"
                 >
                   {/* Animated Gradient Overlay */}
                   <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500">
-                    <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 via-transparent to-indigo-500/5"></div>
+                    <div className="absolute inset-0 bg-linear-to-br from-blue-500/5 via-transparent to-indigo-500/5"></div>
                   </div>
 
                   {/* Enhanced Discount Badge */}
                   <div className="absolute top-0 right-0 z-10">
                     <div className="relative">
-                      <div className="absolute inset-0 bg-gradient-to-br from-red-500 to-red-700 rounded-bl-2xl blur-md opacity-60"></div>
-                      <div className="relative bg-gradient-to-br from-red-600 to-red-700 text-white text-xs font-bold px-4 py-2 rounded-bl-2xl shadow-xl flex items-center gap-1.5">
+                      <div className="absolute inset-0 bg-linear-to-br from-red-500 to-red-700 rounded-bl-2xl blur-md opacity-60"></div>
+                      <div className="relative bg-linear-to-br from-red-600 to-red-700 text-white text-xs font-bold px-4 py-2 rounded-bl-2xl shadow-xl flex items-center gap-1.5">
                         <TrendingDown className="w-3.5 h-3.5" />
                         HEMAT {discountPercentage}%
                       </div>
@@ -139,8 +139,8 @@ export default function TemplateProducts({ onBack }: TemplateProductsProps) {
                     {/* Enhanced Icon Header */}
                     <div className="flex justify-between items-start">
                       <div className="relative">
-                        <div className="absolute inset-0 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl blur-lg opacity-30 group-hover:opacity-50 transition-opacity"></div>
-                        <div className="relative w-16 h-16 rounded-xl bg-gradient-to-br from-blue-600/30 to-indigo-600/30 border border-blue-500/30 flex items-center justify-center group-hover:scale-110 group-hover:rotate-3 transition-all duration-500 shadow-lg">
+                        <div className="absolute inset-0 bg-linear-to-br from-blue-600 to-indigo-600 rounded-xl blur-lg opacity-30 group-hover:opacity-50 transition-opacity"></div>
+                        <div className="relative w-16 h-16 rounded-xl bg-linear-to-br from-blue-600/30 to-indigo-600/30 border border-blue-500/30 flex items-center justify-center group-hover:scale-110 group-hover:rotate-3 transition-all duration-500 shadow-lg">
                           <Monitor className="w-8 h-8 text-blue-400" />
                         </div>
                       </div>
@@ -181,13 +181,13 @@ export default function TemplateProducts({ onBack }: TemplateProductsProps) {
                         <span className="text-sm text-slate-500 line-through decoration-slate-600 decoration-2">
                           Rp {originalPrice.toLocaleString("id-ID")}
                         </span>
-                        <span className="text-xs font-bold text-red-100 bg-gradient-to-r from-red-600/40 to-red-700/40 px-2 py-1 rounded-md border border-red-600/30 shadow-sm">
+                        <span className="text-xs font-bold text-red-100 bg-linear-to-r from-red-600/40 to-red-700/40 px-2 py-1 rounded-md border border-red-600/30 shadow-sm">
                           -{discountPercentage}%
                         </span>
                       </div>
                       <div className="flex items-end gap-1.5">
                         <span className="text-sm text-blue-400 font-semibold">Rp</span>
-                        <span className="text-3xl font-bold bg-gradient-to-r from-slate-100 to-blue-100 bg-clip-text text-transparent">
+                        <span className="text-3xl font-bold bg-linear-to-r from-slate-100 to-blue-100 bg-clip-text text-transparent">
                           {displayPrice.toLocaleString("id-ID")}
                         </span>
                       </div>
@@ -197,16 +197,16 @@ export default function TemplateProducts({ onBack }: TemplateProductsProps) {
                     <div className="flex gap-3">
                       <button
                         onClick={() => handleBuyNow(product)}
-                        className="relative flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white text-sm font-bold transition-all duration-300 shadow-lg shadow-blue-500/30 hover:shadow-blue-500/50 active:scale-[0.97] group/btn overflow-hidden"
+                        className="relative flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-linear-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white text-sm font-bold transition-all duration-300 shadow-lg shadow-blue-500/30 hover:shadow-blue-500/50 active:scale-[0.97] group/btn overflow-hidden"
                       >
-                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent translate-x-[-100%] group-hover/btn:translate-x-[100%] transition-transform duration-700"></div>
+                        <div className="absolute inset-0 bg-linear-to-r from-transparent via-white/20 to-transparent translate-x-full group-hover/btn:translate-x-[100%] transition-transform duration-700"></div>
                         <Zap className="w-4 h-4 fill-current relative z-10" />
                         <span className="relative z-10">Beli Sekarang</span>
                       </button>
                       
                       <button
                         onClick={() => addToCart(product)}
-                        className="flex-shrink-0 w-12 h-12 flex items-center justify-center rounded-xl border-2 border-slate-700/50 hover:border-blue-500/60 text-slate-400 hover:text-blue-400 hover:bg-blue-500/10 transition-all duration-300 active:scale-[0.97] shadow-sm hover:shadow-lg hover:shadow-blue-500/20"
+                        className="shrink-0 w-12 h-12 flex items-center justify-center rounded-xl border-2 border-slate-700/50 hover:border-blue-500/60 text-slate-400 hover:text-blue-400 hover:bg-blue-500/10 transition-all duration-300 active:scale-[0.97] shadow-sm hover:shadow-lg hover:shadow-blue-500/20"
                         title="Tambah ke Keranjang"
                       >
                         <ShoppingCart className="w-5 h-5" />

@@ -1,10 +1,8 @@
 import "./globals.css";
 import type { Metadata } from "next";
 import { Inter, Poppins } from "next/font/google";
-
-// 👇 Import Vercel Analytics
+import SalesPopup from "../components/SalesPopup";
 import { Analytics } from "@vercel/analytics/react";
-
 import { CartProvider } from "../context/CartContext";
 import Header from "../components/Header"; 
 import Footer from "../components/Footer";
@@ -54,7 +52,7 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-// 👇 Data Schema Markup untuk SEO Google (Toko Online)
+  // 👇 Data Schema Markup untuk SEO Google (Toko Online)
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "Store",
@@ -109,6 +107,9 @@ export default function RootLayout({
             <Footer />
           </div>
         </CartProvider>
+
+        {/* 👇 Komponen Notifikasi Penjualan (Popup) */}
+        <SalesPopup />
 
         {/* 👇 Komponen Pelacak Pengunjung */}
         <Analytics />
