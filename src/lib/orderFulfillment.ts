@@ -1,17 +1,7 @@
 // src/lib/orderFulfillment.ts
 
-import { createClient } from "@supabase/supabase-js";
+import { db } from "./db"; // Gunakan Prisma, bukan Supabase
 import { sendWhatsAppMessage } from "./fonnte";
-
-// --- INISIALISASI SUPABASE KHUSUS SERVER ---
-// Kita buat client langsung di sini untuk menghindari error import dari file 'use client'
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-// Gunakan SERVICE_ROLE_KEY jika ada (untuk akses admin bypass RLS), 
-// jika tidak ada gunakan ANON_KEY (seperti client biasa)
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-
-const supabase = createClient(supabaseUrl, supabaseKey);
-// -------------------------------------------
 
 interface PaymentInfo {
   amount?: number;
@@ -25,40 +15,35 @@ export async function fulfillOrderAndSendWhatsApp(
   try {
     console.log(`[Fulfillment] Processing order ${orderId}...`);
 
-    // 1. Ambil order
-    const { data: order, error: orderErr } = await supabase
-      .from("orders")
-      .select("id, buyer_email, buyer_phone, status")
-      .eq("id", orderId)
-      .single();
+    // 1. Ambil order beserta item, info produk, dan affiliate (pakai Prisma)
+    const order = await db.order.findUnique({
+      where: { id: orderId },
+      include: {
+        orderItems: {
+          include: {
+            product: true, // Ambil relasi produk
+          },
+        },
+        affiliate: true, // Ambil data affiliate jika ada
+      },
+    });
 
-    if (orderErr || !order) {
-      console.error("[Fulfillment] Order not found:", orderErr);
+    if (!order) {
+      console.error("[Fulfillment] Order not found in DB");
       return { success: false, error: "Order tidak ditemukan" };
     }
 
     console.log(`[Fulfillment] Order found. Current status: ${order.status}`);
 
-    // Kalau sudah paid/completed, jangan kirim dobel
+    // Kalau sudah paid/completed, jangan kirim dobel & jangan kasih komisi dobel
     if (order.status === "paid" || order.status === "completed") {
       console.log("[Fulfillment] Order sudah diproses sebelumnya:", orderId);
       return { success: true };
     }
 
-    // 2. Ambil items order DENGAN product info untuk cek type
-    const { data: items, error: itemsErr } = await supabase
-      .from("order_items")
-      .select(`
-        id, 
-        effective_unit_count,
-        quantity,
-        product_id,
-        products!inner(id, name, product_type, file_url)
-      `)
-      .eq("order_id", orderId);
-
-    if (itemsErr || !items || items.length === 0) {
-      console.error("[Fulfillment] Order items error:", itemsErr);
+    const items = order.orderItems;
+    if (!items || items.length === 0) {
+      console.error("[Fulfillment] Order items empty");
       return {
         success: false,
         error: "Item order tidak ditemukan untuk order ini",
@@ -67,11 +52,10 @@ export async function fulfillOrderAndSendWhatsApp(
 
     console.log(`[Fulfillment] Found ${items.length} items in order`);
 
-    // 3. Pisahkan berdasarkan product type
-    // Note: Pastikan type definition sesuai atau gunakan any sementara
-    const gmailItems = items.filter((item: any) => item.products.product_type === "gmail");
-    const ebookItems = items.filter((item: any) => item.products.product_type === "ebook");
-    const templateItems = items.filter((item: any) => item.products.product_type === "template"); // Tambahan untuk Template
+    // 2. Pisahkan berdasarkan product type
+    const gmailItems = items.filter((item) => item.product.productType === "gmail");
+    const ebookItems = items.filter((item) => item.product.productType === "ebook");
+    const templateItems = items.filter((item) => item.product.productType === "template");
 
     console.log(`[Fulfillment] Items: Gmail=${gmailItems.length}, Ebook=${ebookItems.length}, Template=${templateItems.length}`);
 
@@ -80,7 +64,7 @@ export async function fulfillOrderAndSendWhatsApp(
     message += `━━━━━━━━━━━━━━━━━━━━━\n`;
     message += `📋 *INFORMASI PESANAN*\n`;
     message += `  Order ID: ${orderId}\n`;
-    message += `  Email: ${order.buyer_email}\n`;
+    message += `  Email: ${order.buyerEmail}\n`;
     if (paymentInfo?.payment_method) {
       message += `  Metode: ${paymentInfo.payment_method}\n`;
     }
@@ -89,36 +73,26 @@ export async function fulfillOrderAndSendWhatsApp(
     }
     message += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
-    // 4. PROSES GMAIL ITEMS (jika ada)
+    // 3. PROSES GMAIL ITEMS (jika ada)
     if (gmailItems.length > 0) {
       const totalGmailUnits = gmailItems.reduce(
-        (sum, it: any) => sum + (it.effective_unit_count as number),
+        (sum, it) => sum + it.effectiveUnitCount,
         0
       );
 
       console.log(`[Fulfillment] Fetching ${totalGmailUnits} Gmail accounts...`);
 
       // Ambil stok akun Gmail
-      const { data: stockRows, error: stockErr } = await supabase
-        .from("accounts_stock")
-        .select("id, username, password, is_used")
-        .eq("is_used", false)
-        .limit(totalGmailUnits);
+      const availableAccounts = await db.accountsStock.findMany({
+        where: { isUsed: false },
+        take: totalGmailUnits,
+      });
 
-      if (stockErr) {
-        console.error("[Fulfillment] Load stock error:", stockErr);
-        return {
-          success: false,
-          error: "Gagal mengambil stok akun Gmail",
-        };
-      }
+      console.log(`[Fulfillment] Available Gmail stock: ${availableAccounts.length}`);
 
-      const available = stockRows ?? [];
-      console.log(`[Fulfillment] Available Gmail stock: ${available.length}`);
-
-      if (available.length < totalGmailUnits) {
+      if (availableAccounts.length < totalGmailUnits) {
         console.error(
-          `[Fulfillment] Stok Gmail kurang. Dibutuhkan ${totalGmailUnits}, tersedia ${available.length}`
+          `[Fulfillment] Stok Gmail kurang. Dibutuhkan ${totalGmailUnits}, tersedia ${availableAccounts.length}`
         );
         return {
           success: false,
@@ -126,44 +100,35 @@ export async function fulfillOrderAndSendWhatsApp(
         };
       }
 
-      const selectedAccounts = available.slice(0, totalGmailUnits);
-
       // Tandai stok sebagai terpakai dengan assigned_order_item_id
       console.log(`[Fulfillment] Marking Gmail accounts as used...`);
       let stockIndex = 0;
       for (const item of gmailItems) {
-        const accountsForItem = selectedAccounts.slice(
+        const accountsForItem = availableAccounts.slice(
           stockIndex,
-          stockIndex + item.effective_unit_count
+          stockIndex + item.effectiveUnitCount
         );
-        const accountIds = accountsForItem.map((a: any) => a.id);
+        const accountIds = accountsForItem.map((a) => a.id);
 
         console.log(`[Fulfillment] Assigning ${accountIds.length} accounts to item ${item.id}`);
 
-        const { error: updateStockErr } = await supabase
-          .from("accounts_stock")
-          .update({ 
-            is_used: true,
-            assigned_order_item_id: item.id 
-          })
-          .in("id", accountIds);
+        // Update menggunakan Prisma
+        await db.accountsStock.updateMany({
+          where: { id: { in: accountIds } },
+          data: {
+            isUsed: true,
+            assignedOrderItemId: item.id,
+          },
+        });
 
-        if (updateStockErr) {
-          console.error("[Fulfillment] Update stock error:", updateStockErr);
-          return {
-            success: false,
-            error: "Gagal menandai stok akun sebagai terpakai",
-          };
-        }
-
-        stockIndex += item.effective_unit_count;
+        stockIndex += item.effectiveUnitCount;
       }
 
       console.log(`[Fulfillment] Gmail stock updated successfully`);
 
       // Build pesan akun Gmail
       message += `🔐 *AKUN GMAIL* (${totalGmailUnits} akun)\n\n`;
-      const lines = selectedAccounts.map((acc: any) => {
+      const lines = availableAccounts.map((acc) => {
         return `Email: ${acc.username}\nPassword: ${acc.password}`;
       });
       message += lines.join("\n\n");
@@ -177,79 +142,42 @@ export async function fulfillOrderAndSendWhatsApp(
       message += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
     }
 
-    // 5. PROSES E-BOOK ITEMS (jika ada)
+    // 4. PROSES E-BOOK ITEMS
     if (ebookItems.length > 0) {
-      console.log(`[Fulfillment] Processing ${ebookItems.length} E-book items...`);
-
       message += `📚 *E-BOOK PREMIUM*\n\n`;
-      
       for (const item of ebookItems) {
-        const product = item.products as any;
-        const quantity = item.quantity;
+        message += `📖 *${item.product.name}*`;
+        if (item.quantity > 1) message += ` (${item.quantity}x)\n`;
+        else message += `\n`;
         
-        message += `📖 *${product.name}*`;
-        if (quantity > 1) {
-          message += ` (${quantity}x)\n`;
-        } else {
-          message += `\n`;
-        }
-        
-        if (product.file_url) {
-          message += `🔗 Download: ${product.file_url}\n`;
-        } else {
-          message += `⚠️ Link download akan dikirim segera via email\n`;
-        }
+        if (item.product.fileUrl) message += `🔗 Download: ${item.product.fileUrl}\n`;
+        else message += `⚠️ Link download akan dikirim segera via email\n`;
         message += `\n`;
       }
-      
-      message += `━━━━━━━━━━━━━━━━━━━━━\n`;
-      message += `💡 *Info E-book*\n\n`;
-      message += `  ✓ Format PDF Berkualitas HD\n`;
-      message += `  ✓ Akses Selamanya\n`;
-      message += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
     }
 
-    // 6. PROSES TEMPLATE ITEMS (jika ada)
+    // 5. PROSES TEMPLATE ITEMS
     if (templateItems.length > 0) {
-      console.log(`[Fulfillment] Processing ${templateItems.length} Template items...`);
-
       message += `💻 *WORDPRESS TEMPLATES*\n\n`;
-      
       for (const item of templateItems) {
-        const product = item.products as any;
-        const quantity = item.quantity;
+        message += `📂 *${item.product.name}*`;
+        if (item.quantity > 1) message += ` (${item.quantity}x)\n`;
+        else message += `\n`;
         
-        message += `📂 *${product.name}*`;
-        if (quantity > 1) {
-          message += ` (${quantity}x)\n`;
-        } else {
-          message += `\n`;
-        }
-        
-        if (product.file_url) {
-          message += `🔗 Download: ${product.file_url}\n`;
-        } else {
-          message += `⚠️ Link download akan dikirim segera via email\n`;
-        }
+        if (item.product.fileUrl) message += `🔗 Download: ${item.product.fileUrl}\n`;
+        else message += `⚠️ Link download akan dikirim segera via email\n`;
         message += `\n`;
       }
-      
-      message += `━━━━━━━━━━━━━━━━━━━━━\n`;
-      message += `💡 *Info Template*\n\n`;
-      message += `  ✓ File ZIP Siap Install\n`;
-      message += `  ✓ 100% Clean Files\n`;
-      message += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
     }
 
-    // 7. Closing message
+    // 6. Closing message
     message += `_Jika ada pertanyaan, jangan ragu untuk menghubungi kami._\n`;
     message += `Terima kasih atas kepercayaan Anda. 🙏\n\n`;
     message += `_Pesan otomatis - Mohon tidak membalas_`;
 
-    // 8. Kirim WhatsApp
-    const target = String(order.buyer_phone || "").trim();
+    // 7. Kirim WhatsApp
+    const target = String(order.buyerPhone || "").trim();
     if (!target) {
-      console.error("[Fulfillment] Nomor WhatsApp kosong di order:", orderId);
       return { success: false, error: "Nomor WhatsApp di order kosong" };
     }
 
@@ -257,43 +185,53 @@ export async function fulfillOrderAndSendWhatsApp(
     const waResult = await sendWhatsAppMessage(target, message);
 
     if (!waResult.success) {
-      console.error("[Fulfillment] Gagal kirim WA:", waResult.error, waResult.raw);
-      // Jangan return false dulu, yang penting status order terupdate jika perlu
-      // Atau return false jika WA wajib terkirim
-      return {
-        success: false,
-        error: "Gagal mengirim WhatsApp ke pembeli",
-      };
+      console.error("[Fulfillment] Gagal kirim WA:", waResult.error);
+      return { success: false, error: "Gagal mengirim WhatsApp ke pembeli" };
     }
 
-    console.log(`[Fulfillment] WhatsApp sent successfully`);
-
-    // 9. Log WhatsApp ke database
-    await supabase.from("whatsapp_logs").insert({
-      order_id: orderId,
-      to_number: target,
-      message: message,
-      status: waResult.success ? "sent" : "failed",
-      response_raw: waResult.raw,
+    // 8. Log WhatsApp ke database
+    await db.whatsappLog.create({
+      data: {
+        orderId: orderId,
+        toNumber: target,
+        message: message,
+        status: waResult.success ? "sent" : "failed",
+        responseRaw: waResult.raw ? JSON.parse(JSON.stringify(waResult.raw)) : null,
+      },
     });
 
-    console.log(`[Fulfillment] WhatsApp log saved`);
+    // ==========================================
+    // 9. FITUR BARU: SISTEM KOMISI AFFILIATE
+    // ==========================================
+    if (order.affiliateId && paymentInfo?.amount) {
+      // SETTING KOMISI: Misalnya 10% dari total belanja
+      const KOMISI_PERSEN = 0.10; 
+      const nominalKomisi = Math.floor(paymentInfo.amount * KOMISI_PERSEN);
+
+      try {
+        await db.affiliate.update({
+          where: { id: order.affiliateId },
+          data: {
+            balance: {
+              increment: nominalKomisi // Otomatis nambah saldo di TiDB
+            }
+          }
+        });
+        console.log(`[Fulfillment] 💰 Komisi Rp${nominalKomisi} ditambahkan ke Affiliate ID: ${order.affiliateId}`);
+      } catch (affErr) {
+        console.error("[Fulfillment] Gagal menambah komisi affiliate:", affErr);
+        // Kita tidak mereturn error di sini karena WA dan Order sudah diproses
+      }
+    }
 
     // 10. Update status order jadi completed
-    const updatePayload: any = { status: "completed" };
-    if (paymentInfo?.payment_method) {
-      updatePayload.payment_reference = paymentInfo.payment_method;
-    }
-
-    const { error: orderUpdateErr } = await supabase
-      .from("orders")
-      .update(updatePayload)
-      .eq("id", orderId);
-
-    if (orderUpdateErr) {
-      console.error("[Fulfillment] Gagal update status order:", orderUpdateErr);
-      return { success: true }; // WA terkirim, anggap sukses meski DB update status gagal (edge case)
-    }
+    await db.order.update({
+      where: { id: orderId },
+      data: {
+        status: "completed",
+        paymentReference: paymentInfo?.payment_method || null,
+      },
+    });
 
     console.log(`[Fulfillment] ✅ Order ${orderId} completed successfully!`);
     return { success: true };

@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
 import {
   Search,
   X,
@@ -19,15 +18,10 @@ import {
 } from "lucide-react";
 import { useCart } from "@/context/CartContext";
 
-// Import komponen kategori
 import GmailProducts from "./gmail";
 import EbookProducts from "./ebook";
 import AppPremiumProducts from "./appPrem";
 import TemplateProducts from "./templates";
-
-// ============================================
-// TOAST NOTIFICATION SYSTEM
-// ============================================
 
 type ToastType = 'success' | 'error' | 'warning' | 'info';
 
@@ -37,7 +31,6 @@ interface Toast {
   type: ToastType;
 }
 
-// Toast Hook
 const useToast = () => {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
@@ -129,7 +122,7 @@ const ToastNotification = ({
       `}
     >
       {/* Icon */}
-      <div className={`flex-shrink-0 w-10 h-10 rounded-lg ${styles.iconBg} flex items-center justify-center`}>
+      <div className={`shrink-0 w-10 h-10 rounded-lg ${styles.iconBg} flex items-center justify-center`}>
         {styles.icon}
       </div>
 
@@ -146,7 +139,7 @@ const ToastNotification = ({
           setIsExiting(true);
           setTimeout(onClose, 300);
         }}
-        className="flex-shrink-0 text-slate-400 hover:text-slate-200 transition-colors p-1 rounded-lg hover:bg-white/5"
+        className="shrink-0 text-slate-400 hover:text-slate-200 transition-colors p-1 rounded-lg hover:bg-white/5"
       >
         <X className="w-4 h-4" />
       </button>
@@ -178,7 +171,7 @@ const ToastContainer = ({
 };
 
 // ============================================
-// PRODUCT TYPES
+// PRODUCT TYPES (Updated to match Prisma output)
 // ============================================
 
 interface Product {
@@ -186,11 +179,11 @@ interface Product {
   name: string;
   description: string | null;
   price: number;
-  unit_count: number;
-  product_type: string;
-  file_url: string | null;
-  is_active: boolean;
-  created_at?: string;
+  unitCount: number; // Prisma uses camelCase
+  productType: string; // Prisma uses camelCase
+  fileUrl: string | null; // Prisma uses camelCase
+  isActive: boolean; // Prisma uses camelCase
+  createdAt?: string;
 }
 
 // ============================================
@@ -218,22 +211,22 @@ export default function ProductsPage() {
 
   const { addToCart, cart, updateQuantity } = useCart();
 
-  // Load all products for search
+  // Fetch all products using API Route (Prisma)
   useEffect(() => {
     async function fetchAllProducts() {
       setIsLoading(true);
-      const { data, error } = await supabase
-        .from("products")
-        .select("*")
-        .eq("is_active", true);
-
-      if (error) {
+      try {
+        const res = await fetch('/api/products');
+        if (!res.ok) throw new Error("Failed to fetch products");
+        
+        const data = await res.json();
+        setAllProducts(data as Product[]);
+      } catch (error) {
         console.error("Fetch products error:", error);
         showToast("Gagal memuat produk. Silakan refresh halaman.", "error");
+      } finally {
+        setIsLoading(false);
       }
-
-      if (data) setAllProducts(data as Product[]);
-      setIsLoading(false);
     }
 
     fetchAllProducts();
@@ -277,18 +270,18 @@ export default function ProductsPage() {
     }).format(amount);
   };
 
-  // Adapter for Product to ProductRow
+  // Adapter for Product (Prisma) to ProductRow (Cart Type)
   const toProductRow = (product: Product) => {
     return {
       id: product.id,
       name: product.name,
-      unit_count: product.unit_count,
+      unit_count: product.unitCount, // Konversi ke format cart
       price: product.price,
-      product_type: product.product_type,
+      product_type: product.productType, // Konversi ke format cart
       description: product.description,
-      file_url: product.file_url,
-      is_active: product.is_active,
-      created_at: product.created_at,
+      file_url: product.fileUrl, // Konversi ke format cart
+      is_active: product.isActive,
+      created_at: product.createdAt,
     } as any;
   };
 
@@ -373,7 +366,7 @@ export default function ProductsPage() {
             <div className="text-center space-y-4">
               <h1 className="text-4xl md:text-5xl font-bold tracking-tight mb-3">
                 Pilih Kategori{" "}
-                <span className="bg-gradient-to-r from-emerald-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
+                <span className="bg-linear-to-r from-emerald-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
                   Produk Premium
                 </span>
               </h1>
@@ -384,7 +377,7 @@ export default function ProductsPage() {
 
             {/* Search Bar */}
             <div className="max-w-xl mx-auto relative group">
-              <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 via-blue-500/20 to-purple-500/20 rounded-full blur opacity-0 group-hover:opacity-100 transition-opacity" />
+              <div className="absolute inset-0 bg-linear-to-r from-emerald-500/20 via-blue-500/20 to-purple-500/20 rounded-full blur opacity-0 group-hover:opacity-100 transition-opacity" />
               <div className="relative">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-emerald-400 transition-colors" />
                 <input
@@ -460,14 +453,14 @@ export default function ProductsPage() {
                         {/* Header Product */}
                         <div className="flex justify-between items-start mb-4">
                           <div
-                            className={`w-12 h-12 rounded-xl flex items-center justify-center bg-gradient-to-br ${getCategoryColor(
-                              product.product_type
+                            className={`w-12 h-12 rounded-xl flex items-center justify-center bg-linear-to-br ${getCategoryColor(
+                              product.productType
                             )} text-white shadow-lg`}
                           >
-                            {getCategoryIcon(product.product_type)}
+                            {getCategoryIcon(product.productType)}
                           </div>
                           <span className="text-[10px] uppercase font-bold px-2.5 py-1 rounded-full bg-slate-800/50 border border-slate-700 text-slate-400">
-                            {product.product_type}
+                            {product.productType}
                           </span>
                         </div>
 
@@ -487,9 +480,9 @@ export default function ProductsPage() {
                           <span className="font-mono text-emerald-400 font-bold text-lg">
                             {formatRupiah(product.price)}
                           </span>
-                          {product.unit_count > 0 && (
+                          {product.unitCount > 0 && (
                             <span className="text-xs text-slate-500 bg-slate-800/50 px-2 py-1 rounded-full">
-                              Stok: {product.unit_count}
+                              Stok: {product.unitCount}
                             </span>
                           )}
                         </div>
@@ -514,7 +507,7 @@ export default function ProductsPage() {
                               <button
                                 onClick={() => handleQuantityChange(product.id, 1)}
                                 className="w-8 h-8 rounded-lg bg-emerald-600 hover:bg-emerald-500 flex items-center justify-center text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                                disabled={quantity >= product.unit_count}
+                                disabled={quantity >= product.unitCount}
                               >
                                 <Plus className="w-4 h-4" />
                               </button>
@@ -543,7 +536,7 @@ export default function ProductsPage() {
 
                             <button
                               onClick={() => handleBuyNow(product)}
-                              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white transition-all font-medium shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/40 hover:scale-[1.02]"
+                              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-linear-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white transition-all font-medium shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/40 hover:scale-[1.02]"
                             >
                               <Zap className="w-4 h-4" />
                               <span>Beli</span>
@@ -583,7 +576,7 @@ export default function ProductsPage() {
               className="group text-left p-6 rounded-2xl border-2 border-slate-800 hover:border-emerald-500 bg-slate-900/50 hover:bg-slate-900 transition-all hover:shadow-lg hover:shadow-emerald-500/10"
             >
               <div className="flex items-start justify-between mb-4">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-red-500 to-yellow-500 flex items-center justify-center shadow-lg">
+                <div className="w-12 h-12 rounded-xl bg-linear-to-br from-red-500 to-yellow-500 flex items-center justify-center shadow-lg">
                   <svg className="w-6 h-6 text-white" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z" />
                   </svg>
@@ -606,7 +599,7 @@ export default function ProductsPage() {
               className="group text-left p-6 rounded-2xl border-2 border-slate-800 hover:border-purple-500 bg-slate-900/50 hover:bg-slate-900 transition-all hover:shadow-lg hover:shadow-purple-500/10"
             >
               <div className="flex items-start justify-between mb-4">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-lg">
+                <div className="w-12 h-12 rounded-xl bg-linear-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-lg">
                   <svg className="w-6 h-6 text-white" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M18 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 4h5v8l-2.5-1.5L6 12V4z" />
                   </svg>
@@ -629,7 +622,7 @@ export default function ProductsPage() {
               className="group text-left p-6 rounded-2xl border-2 border-slate-800 hover:border-blue-500 bg-slate-900/50 hover:bg-slate-900 transition-all hover:shadow-lg hover:shadow-blue-500/10"
             >
               <div className="flex items-start justify-between mb-4">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center shadow-lg">
+                <div className="w-12 h-12 rounded-xl bg-linear-to-br from-blue-500 to-cyan-500 flex items-center justify-center shadow-lg">
                   <LayoutTemplate className="w-6 h-6 text-white" />
                 </div>
                 <div className="w-6 h-6 rounded-full border-2 border-slate-700 group-hover:border-blue-500 flex items-center justify-center transition-colors">
@@ -652,7 +645,7 @@ export default function ProductsPage() {
                 </span>
               </div>
               <div className="flex items-start justify-between mb-4">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-slate-700 to-slate-600 flex items-center justify-center">
+                <div className="w-12 h-12 rounded-xl bg-linear-to-br from-slate-700 to-slate-600 flex items-center justify-center">
                   <Package className="w-6 h-6 text-slate-400" />
                 </div>
                 <div className="w-6 h-6 rounded-full border-2 border-slate-700 flex items-center justify-center">

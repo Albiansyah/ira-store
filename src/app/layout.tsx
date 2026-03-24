@@ -7,6 +7,10 @@ import { CartProvider } from "../context/CartContext";
 import Header from "../components/Header"; 
 import Footer from "../components/Footer";
 
+// 👇 1. Import AffiliateTracker dan Suspense
+import AffiliateTracker from "../components/AffiliateTracker";
+import { Suspense } from "react";
+
 const inter = Inter({
   subsets: ["latin"],
   variable: "--font-inter",
@@ -97,6 +101,11 @@ export default function RootLayout({
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
+
+        {/* 👇 2. Tambahkan Affiliate Tracker di dalam Suspense */}
+        <Suspense fallback={null}>
+          <AffiliateTracker />
+        </Suspense>
 
         <CartProvider>
           <div className="min-h-screen flex flex-col">

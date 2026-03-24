@@ -145,12 +145,14 @@ export default function CheckoutPage() {
     setLoading(true);
 
     try {
+      const affiliateCode = localStorage.getItem("affiliate_ref") || null;
       const res = await fetch("/api/orders/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           buyerEmail,
           buyerPhone,
+          affiliateCode,
           items: cart.map((item) => ({
             productId: item.productId,
             quantity: item.quantity,
